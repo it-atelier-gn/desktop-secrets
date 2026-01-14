@@ -29,4 +29,10 @@ go.work.sum
 
 # Editor/IDE
 # .idea/
-# .vscode/
+.vscode/
+
+tplenv.exe
+config.yaml
+aliases.yaml
+.env.tpl
+launch.json

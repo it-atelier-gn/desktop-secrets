@@ -1,0 +1,87 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: windows
+            runner: windows-latest
+            goarch: amd64
+            package: ./cmd/tplenv
+            output: tplenv.exe
+            artifact_name: tplenv-binary
+          - os: windows
+            runner: windows-latest
+            goarch: amd64
+            package: ./cmd/getsec
+            output: getsec.exe  
+            artifact_name: getsec-binary
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.25'
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+      
+      - name: Build ${{ matrix.os }}
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -ldflags "-X desktopsecrets/internal/version.Version=${{ steps.version.outputs.version }} -X desktopsecrets/internal/version.Revision=${{ github.sha }}" -o ${{ matrix.output }} ${{ matrix.package }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.output }}
+
+  publish:
+    name: Publish to GitHub Packages
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          cp tplenv-binary/tplenv.exe release/tplenv-${{ steps.version.outputs.version }}-windows-amd64.exe
+          cp getsec-binary/getsec.exe release/getsec-${{ steps.version.outputs.version }}-windows-amd64.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
