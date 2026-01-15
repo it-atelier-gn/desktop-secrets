@@ -98,21 +98,13 @@ jobs:
         id: version
         run: echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
 
-      - name: Prepare release directory
+      - name: Prepare release files
         run: |
           mkdir -p release
-
-          for dir in */; do
-            bin=$(ls "$dir")
-            name="${bin%.*}"
-            arch="${dir%/}"
-
-            if [[ "$bin" == *.exe ]]; then
-              zip "release/${name}-${{ steps.version.outputs.version }}-${arch}.zip" "$dir/$bin"
-            else
-              tar -czf "release/${name}-${{ steps.version.outputs.version }}-${arch}.tar.gz" -C "$dir" "$bin"
-            fi
-          done
+          cp getsec-linux-amd64/tplenv release/getsec-${{ steps.version.outputs.version }}-linux-amd64
+          cp getsec-windows-amd64/getsec.exe release/getsec-${{ steps.version.outputs.version }}-windows-amd64.exe
+          cp tplenv-linux-amd64/tplenv release/tplenv-${{ steps.version.outputs.version }}-linux-amd64
+          cp tplenv-windows-amd64/tplenv.exe release/tplenv-${{ steps.version.outputs.version }}-windows-amd64.exe
 
       - name: Generate SHA256 checksums
         run: |
