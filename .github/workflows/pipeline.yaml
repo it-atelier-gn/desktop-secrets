@@ -70,8 +70,7 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -ldflags "-X desktopsecrets/internal/version.Version=${{ steps.version.outputs.version }} -X desktopsecrets/internal/version.Revision=${{ github.sha }}" \
-            -o ${{ matrix.output }} ${{ matrix.package }}
+          go build -ldflags "-X desktopsecrets/internal/version.Version=${{ steps.version.outputs.version }} -X desktopsecrets/internal/version.Revision=${{ github.sha }}" -o ${{ matrix.output }} ${{ matrix.package }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
