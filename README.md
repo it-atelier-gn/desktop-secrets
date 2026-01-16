@@ -4,7 +4,7 @@
 
 DesktopSecrets will automatically start when one of the clients is used for the first time. A tray icon allows you to easily control the system.
 
-#### ✨ Features
+## ✨ Features
 
 - 🔑 **KeePass Integration** – Seamlessly fetch secrets from KeePass vaults.
 - 💾 **Smart Caching** – Unlocked vaults stay accessible for a configurable duration.
@@ -12,34 +12,41 @@ DesktopSecrets will automatically start when one of the clients is used for the 
 
 ---
 
-## ⚙️ Configuration
+## 🔌 Secret Providers
 
-Access settings via the **taskbar icon menu**.
+Secret providers are components that allow DesktopSecrets to retrieve secrets from various sources.
 
-**Configuration Location:**
-- The `DESKTOP_SECRETS_CONFIG_FILE` environment variable, or if not present,
-- The executable directory file name `config.yaml`.
+### 🔑 KeePass Provider
 
+Ask the user to provide the master password of the given vault and retrieve the given secret.
 
-## 🚀 Clients
+#### Link Format
 
-### 🛠️ *getsec*
-
-A command-line client for DesktopSecrets that allows to retrieve secrets defined as command-line arguments.
-
-#### Basic Usage
-
-```shell
-getsec "API_SECRET=keepass($USERPROFILE\Credentials.kdbx|dev-api-secret)" "CLOUD_KEY=keepass(&cloud|Live Token)"
+```properties
+SECRET_NAME=keepass(VAULT|SECRET_TITLE)
 ```
+
+* VAULT = A keepass database file. 
+* SECRET_TITLE = Title of the secret inside the keepass database. 
+
+### 👤 User Provider
+
+Ask the user to provide a password with the given title.
+
+#### Link Format
+
+```properties
+SECRET_NAME=user(TITLE)
+```
+## 🚀 Commands
 
 ### 📄*tplenv*
 
-A command-line client for DesktopSecrets that allows to retrieve secrets defined in a `.env` template file.
+A command-line client for DesktopSecrets that allows to retrieve secrets defined in one or more `.env` template files.
 
-####  Basic Usage
+####  Usage Example 
 
-Create a `.env.tpl` file with secret links:
+Create a `.env.tpl` file that contains references to secrets:
 
 ```properties
 DATABASE_URL=postgresql://localhost:5432/mydb
@@ -47,27 +54,33 @@ API_SECRET=keepass($USERPROFILE\Credentials.kdbx|dev-api-secret)
 LOG_LEVEL=debug
 ```
 
-Run `tplenv` to output the content of the `.env.tpl` file with the retrieved secrets.
+Use `tplenv` to output the combined contents of all resolved `.env.tpl*` files in the current working directory, so that the output can be sourced into a shell. Learn how to source the environment with the command: `tplenv --apply-one-liner`. More options are available. See `tplenv --help` to get a list.
 
----
+Use `tplenv run` to run a command with the content of all resolved `.env.tpl*` files as environment. 
 
-## 🔌 Secret Providers
+### 🛠️ *getsec*
 
-Secret providers are components that allow DesktopSecrets to retrieve secrets from various sources.
+A command-line client for DesktopSecrets that allows to retrieve secrets defined as command-line arguments.
 
-#### 🔑 KeePass Provider
+####  Usage Example
 
-Ask the user to provide the master password of the given vault and retrieve the given secret.
-
-##### Link Format
-
-```properties
-SECRET_NAME=keepass(VAULT|SECRET_TITLE)
+```shell
+getsec "API_SECRET=keepass($USERPROFILE\Credentials.kdbx|dev-api-secret)"
 ```
 
-##### Aliases
+## 🧑‍🎓 Advanced topics
 
-Define system-wide aliases for cleaner configuration:
+### ⚙️ Configuration
+
+Access settings via the **taskbar icon menu**.
+
+**Configuration Location:**
+- The `DESKTOP_SECRETS_CONFIG_FILE` environment variable, or if not present,
+- The executable directory file name `config.yaml`.
+
+### Aliases
+
+Define system-wide aliases for cleaner configuration in the file `aliases.yaml`:
 
 Example:
 
@@ -80,27 +93,39 @@ local: C:\Users\User\Vaults\local-secrets.kdbx
 - The `DESKTOP_SECRETS_ALIASES_FILE` environment variable, or if not present,
 - The executable directory file name `aliases.yaml`.
 
-#### 👤 User Provider
 
-##### Link Format
+### Chaining
 
-Ask the user to provide a password with the given title.
+The KeePass provider supports opening a KeePass database using a secret retrieved from another KeePass database.
 
+**Example:**
 ```properties
-SECRET_NAME=user(title)
+SECRET_NAME=keepass(VAULT_A[keepass(VAULT_B|SECRET_TITLE_B)]|SECRET_TITLE_A)
 ```
+
+This prompts the user for the master password of VAULT_B, uses the value of SECRET_TITLE_B from VAULT_B as the master password to unlock VAULT_A, and then retrieves SECRET_TITLE_A from VAULT_A.
+
 
 ## 🛠️ Build
 
-##### Prerequisites
+### Prerequisites
 
 - Ensure Go is installed and set up.
 
-##### Build from Source
+### Build from Source
 
 **Standard build:**
 
-```bash
+Windows
+
+```pwsh
 go build -o tplenv.exe ./cmd/tplenv
 go build -o getsec.exe ./cmd/getsec
+```
+
+Linux 
+
+```shell
+go build -o tplenv ./cmd/tplenv
+go build -o getsec ./cmd/getsec
 ```
