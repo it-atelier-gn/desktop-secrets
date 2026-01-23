@@ -1,5 +1,10 @@
 # 🔐 DesktopSecrets
 
+![CI/CD Status](https://img.shields.io/github/actions/workflow/status/it-atelier-gn/desktop-secrets/pipeline.yaml)
+![Go](https://img.shields.io/github/go-mod/go-version/it-atelier-gn/desktop-secrets)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+
 > 🚀 A powerful system for the seamless retrieval of secrets on your development machine. DesktopSecrets conveniently provides access to secrets for your locally running software.
 
 DesktopSecrets will automatically start when one of the clients is used for the first time. A tray icon allows you to easily control the system.
