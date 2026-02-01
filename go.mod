@@ -5,6 +5,7 @@ go 1.25
 require (
 	github.com/getlantern/systray v1.2.2
 	github.com/gofrs/flock v0.13.0
+	github.com/mitchellh/go-ps v1.0.0
 	github.com/ncruces/zenity v0.10.14
 	github.com/spf13/viper v1.21.0
 	github.com/tobischo/gokeepasslib/v3 v3.6.1
@@ -28,12 +29,10 @@ require (
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/josephspurrier/goversioninfo v1.5.0 // indirect
-	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/randall77/makefat v0.0.0-20210315173500-7ddd0e42c844 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
-	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
