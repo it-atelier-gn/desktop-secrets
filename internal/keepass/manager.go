@@ -39,13 +39,12 @@ func NewKPManager() *KPManager {
 }
 
 func (m *KPManager) LoadAliases() error {
-	exePath, err := os.Executable()
+	settingsDir, err := utils.GetSettingsDirectory()
 	if err != nil {
 		return err
 	}
 
-	exeDir := filepath.Dir(exePath)
-	aliasesPath := filepath.Join(exeDir, "aliases.yaml")
+	aliasesPath := filepath.Join(settingsDir, "aliases.yaml")
 
 	if aliasesPathOverride := os.Getenv("DESKTOP_SECRETS_ALIASES_FILE"); aliasesPathOverride != "" {
 		aliasesPath = aliasesPathOverride

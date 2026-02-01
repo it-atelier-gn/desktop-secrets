@@ -14,7 +14,10 @@ import (
 )
 
 func RunDaemon() {
-	config.InitConfig()
+	// Initialize configuration.
+	if err := config.InitConfig(); err != nil {
+		log.Fatalf("Failed to initialize config: %v", err)
+	}
 
 	// Single instance guard for the daemon only.
 	if err := utils.EnsureSingleInstance("desktop-secrets.lock"); err != nil {
