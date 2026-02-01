@@ -1,22 +1,25 @@
 package config
 
 import (
+	"desktopsecrets/internal/utils"
 	"errors"
-	"log"
 	"os"
-	"path/filepath"
+	"path"
 
 	"github.com/spf13/viper"
 )
 
-func InitConfig() {
-	if configFile := os.Getenv("DESKTOP_SECRETS_CONFIG_FILE"); configFile != "" {
+func InitConfig() error {
+	var configFile string
+
+	if configFile = os.Getenv("DESKTOP_SECRETS_CONFIG_FILE"); configFile != "" {
 		viper.SetConfigFile(configFile)
 	} else {
-		viper.SetConfigName("config")
-		viper.SetConfigType("yaml")
-		if exePath, err := os.Executable(); err == nil {
-			viper.AddConfigPath(filepath.Dir(exePath))
+		if settingsDir, err := utils.GetSettingsDirectory(); err == nil {
+			configFile = path.Join(settingsDir, "config.yaml")
+			viper.SetConfigFile(configFile)
+		} else {
+			return err
 		}
 	}
 
@@ -25,10 +28,11 @@ func InitConfig() {
 	var configFileNotFoundError viper.ConfigFileNotFoundError
 	if err := viper.ReadInConfig(); err != nil {
 		if errors.As(err, &configFileNotFoundError) {
-			if err = viper.WriteConfigAs("config.yaml"); err != nil {
-				log.Printf("failed to write default config: %v", err)
+			if err = viper.WriteConfigAs(configFile); err != nil {
+				return err
 			}
 		}
 	}
 
+	return nil
 }

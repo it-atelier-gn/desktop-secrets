@@ -76,13 +76,14 @@ getsec "API_SECRET=keepass($USERPROFILE\Credentials.kdbx|dev-api-secret)"
 
 Access settings via the **taskbar icon menu**.
 
-**Configuration Location:**
-- The `DESKTOP_SECRETS_CONFIG_FILE` environment variable, or if not present,
-- The executable directory file name `config.yaml`.
+**Default Configuration Locations**
+* macOS: `~/Library/Application Support/desktop-secrets`
+* Linux: `$XDG_CONFIG_HOME/desktop-secrets` or `~/.config/desktop-secrets`
+* Windows: `%APPDATA%\desktop-secrets`
 
-### Aliases
+#### Aliases
 
-Define system-wide aliases for cleaner configuration in the file `aliases.yaml`:
+Define aliases for cleaner configuration in the file `aliases.yaml`:
 
 Example:
 
@@ -90,11 +91,11 @@ Example:
 cloud: C:\Project\ABC\Vaults\cloud-secrets.kdbx
 local: C:\Users\User\Vaults\local-secrets.kdbx
 ```
+#### Overrides
 
-**Alias Configuration Locations:**
-- The `DESKTOP_SECRETS_ALIASES_FILE` environment variable, or if not present,
-- The executable directory file name `aliases.yaml`.
-
+Environment overrides:
+- `DESKTOP_SECRETS_CONFIG_FILE` to override the config file
+- `DESKTOP_SECRETS_ALIASES_FILE` to override the aliases file
 
 ### Chaining
 
