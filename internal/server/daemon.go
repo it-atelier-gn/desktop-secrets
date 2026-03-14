@@ -11,6 +11,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"fyne.io/fyne/v2/app"
 )
 
 func RunDaemon() {
@@ -29,11 +31,16 @@ func RunDaemon() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app := NewAppState()
+	appState := NewAppState()
 
-	// Load alias mapping (required for KeePass resolution).
-	if err := app.KP.LoadAliases(); err != nil {
+	// Load alias mapping.
+	if err := appState.KP.LoadAliases(); err != nil {
 		log.Printf("Failed to load aliases: %v", err)
+	}
+
+	// Load keyfile mapping.
+	if err := appState.KP.LoadKeyfiles(); err != nil {
+		log.Printf("Failed to load keyfiles: %v", err)
 	}
 
 	token, err := utils.RandomTokenHex(32)
@@ -41,16 +48,16 @@ func RunDaemon() {
 		log.Fatalf("failed to generate token: %v", err)
 	}
 
-	ds, err := NewDaemonServer(app, token)
+	ds, err := NewDaemonServer(appState, token)
 	if err != nil {
 		log.Fatalf("failed to create daemon server: %v", err)
 	}
-	app.Server = ds
+	appState.Server = ds
 	port := ds.Port
 
 	serverErrCh := make(chan error, 1)
 	go func() {
-		serverErrCh <- app.Server.Serve() // blocking call until shutdown
+		serverErrCh <- appState.Server.Serve() // blocking call until shutdown
 	}()
 
 	// Publish daemon state to shared memory and keep mapping open.
@@ -72,8 +79,8 @@ func RunDaemon() {
 			// OS signal -> shut down server & quit tray if running.
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			if app.Server != nil {
-				_ = app.Server.Shutdown(shutdownCtx)
+			if appState.Server != nil {
+				_ = appState.Server.Shutdown(shutdownCtx)
 			}
 			// If tray is running, ask it to quit.
 			// (If systray hasn't started yet, this is a no-op until it does.)
@@ -90,5 +97,15 @@ func RunDaemon() {
 	}()
 
 	// Start tray and block until Exit is clicked (or server exits and tray quits).
-	RunTray(app)
+	go func() {
+		RunTray(appState)
+		os.Exit(0)
+	}()
+
+	app := app.NewWithID("desktopsecrets")
+	// Create a hidden window to prevent the app from exiting when dialogs close
+	hiddenWindow := app.NewWindow("Daemon")
+	hiddenWindow.SetCloseIntercept(func() {})
+	hiddenWindow.Hide()
+	app.Run()
 }

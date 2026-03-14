@@ -3,29 +3,21 @@ package server
 import (
 	"context"
 	"desktopsecrets/assets"
+	"desktopsecrets/internal/static"
 	"desktopsecrets/internal/version"
 	_ "embed"
 	"fmt"
+	"log"
+	"net/url"
 	"time"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 	"github.com/getlantern/systray"
-	"github.com/ncruces/zenity"
 	"github.com/spf13/viper"
 )
-
-type ttlOption struct {
-	label     string
-	minutes   int
-	isDefault bool
-}
-
-var ttlOptions = []ttlOption{
-	{label: "5 minutes", minutes: 5, isDefault: false},
-	{label: "15 minutes (default)", minutes: 15, isDefault: true},
-	{label: "1 hour", minutes: 60, isDefault: false},
-	{label: "2 hours", minutes: 120, isDefault: false},
-	{label: "4 hours", minutes: 240, isDefault: false},
-}
 
 func RunTray(app *AppState) {
 	systray.Run(func() {
@@ -36,16 +28,16 @@ func RunTray(app *AppState) {
 		systray.SetTooltip("Resolver for .env templates")
 
 		settingsMenu := systray.AddMenuItem("Settings", "")
-		ttlMenu := settingsMenu.AddSubMenuItem("Unlock TTL", "")
-		ttlItems := make([]*systray.MenuItem, len(ttlOptions))
-		for i, opt := range ttlOptions {
-			ttlItems[i] = ttlMenu.AddSubMenuItemCheckbox(opt.label, "", opt.isDefault)
+		ttlMenu := settingsMenu.AddSubMenuItem("Default Unlock TTL", "")
+		ttlItems := make([]*systray.MenuItem, len(static.TTLOptions))
+		for i, opt := range static.TTLOptions {
+			ttlItems[i] = ttlMenu.AddSubMenuItemCheckbox(opt.Label, "", opt.IsDefault)
 		}
 
 		// Initialize selected TTL option from config
 		configuredTTL := viper.GetInt("ttl")
-		for i, opt := range ttlOptions {
-			if opt.minutes == configuredTTL {
+		for i, opt := range static.TTLOptions {
+			if opt.Minutes == configuredTTL {
 				ttlItems[i].Check()
 			} else {
 				ttlItems[i].Uncheck()
@@ -90,18 +82,15 @@ func RunTray(app *AppState) {
 					showAboutDialog()
 
 				case i := <-ttlSelectedCh:
-					opt := ttlOptions[i]
-					viper.Set("ttl", opt.minutes)
+					opt := static.TTLOptions[i]
+					viper.Set("ttl", opt.Minutes)
 					if err := viper.WriteConfig(); err != nil {
-						zenity.Error(
-							"Failed to save TTL setting",
-							zenity.Title("DesktopSecrets Config Error"),
-						)
+						log.Printf("Failed to save Default Unlock TTL setting")
 						continue // Don't update UI on failure
 					}
 
 					// Only update on success
-					app.UnlockTTL.Store(time.Duration(opt.minutes) * time.Minute)
+					app.UnlockTTL.Store(time.Duration(opt.Minutes) * time.Minute)
 					for j := range ttlItems {
 						if i == j {
 							ttlItems[j].Check()
@@ -118,19 +107,40 @@ func RunTray(app *AppState) {
 }
 
 func showAboutDialog() {
-	message := fmt.Sprintf(
-		"DesktopSecrets\n\n"+
-			"Version: %s\n"+
-			"Revision: %s\n\n"+
-			"© 2026 DesktopSecrets Contributors\n\n"+
-			"🔗 https://github.com/it-atelier-gn/desktop-secrets",
-		version.Version, version.Revision,
-	)
+	fyne.Do(func() {
+		w := fyne.CurrentApp().NewWindow("About")
+		icon := fyne.NewStaticResource("icon.ico", assets.IconBytes)
+		w.SetIcon(icon)
+		w.Resize(fyne.NewSize(370, 250))
 
-	zenity.Info(
-		message,
-		zenity.Title("About DesktopSecrets"),
-		zenity.Width(400),
-		zenity.Height(250),
-	)
+		version := widget.NewLabel(fmt.Sprintf("Version %s (%s)", version.Version, version.Revision))
+
+		const repoURL = "https://github.com/it-atelier-gn/desktop-secrets"
+		link := widget.NewHyperlink(repoURL, mustParseURL(repoURL))
+
+		copyright := widget.NewLabel("© 2026 DesktopSecrets Contributors")
+
+		content := container.NewVBox(
+			version,
+			link,
+			copyright,
+			widget.NewLabel(""))
+
+		d := dialog.NewCustom("About DesktopSecrets", "OK", content, w)
+
+		d.SetOnClosed(func() {
+			w.Close()
+		})
+
+		w.Show()
+		d.Show()
+	})
+}
+
+func mustParseURL(s string) *url.URL {
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil
+	}
+	return u
 }

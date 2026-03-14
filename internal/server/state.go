@@ -11,11 +11,14 @@ import (
 )
 
 type KPResolver interface {
+	SetUnlockTTL(unlockTTL *utils.AtomicDuration)
 	LoadAliases() error
+	LoadKeyfiles() error
 	ResolvePassword(ctx context.Context, vault, title string, master string, ttl time.Duration) (string, error)
 }
 
 type UserResolver interface {
+	SetUnlockTTL(unlockTTL *utils.AtomicDuration)
 	ResolvePassword(ctx context.Context, title string, ttl time.Duration) (string, error)
 }
 
@@ -35,5 +38,9 @@ func NewAppState() *AppState {
 		UnlockTTL: utils.AtomicDuration{},
 	}
 	a.UnlockTTL.Store(time.Duration(viper.GetInt("ttl")) * time.Minute)
+
+	a.USER.SetUnlockTTL(&a.UnlockTTL)
+	a.KP.SetUnlockTTL(&a.UnlockTTL)
+
 	return a
 }

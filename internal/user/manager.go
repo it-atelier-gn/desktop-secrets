@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"desktopsecrets/internal/prompt"
 	"desktopsecrets/internal/utils"
 	"errors"
 	"sync"
@@ -14,14 +15,19 @@ type passwordEntry struct {
 }
 
 type UserManager struct {
-	password map[string]*passwordEntry
-	mu       sync.RWMutex
+	password  map[string]*passwordEntry
+	mu        sync.RWMutex
+	unlockTTL *utils.AtomicDuration
 }
 
 func NewUserManager() *UserManager {
 	return &UserManager{
 		password: make(map[string]*passwordEntry),
 	}
+}
+
+func (m *UserManager) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
+	m.unlockTTL = unlockTTL
 }
 
 func (m *UserManager) ResolvePassword(_ context.Context, title string, ttl time.Duration) (string, error) {
@@ -32,20 +38,24 @@ func (m *UserManager) ResolvePassword(_ context.Context, title string, ttl time.
 	}
 	m.mu.Unlock()
 
-	password, err := utils.PromptForPassword(title)
+	userOpts := &prompt.UserOptions{
+		CurrentTTL: int(m.unlockTTL.Load().Minutes()),
+		Prompt:     title,
+	}
+
+	result, err := prompt.PromptForPassword("User", prompt.StyleUser, nil, userOpts)
 	if err != nil {
 		return "", err
 	}
-	if password == "" {
+	if result.Password == "" {
 		return "", errors.New("empty password")
 	}
 
 	p := &passwordEntry{
-		expires:  time.Now().Add(ttl),
-		password: password,
+		expires:  time.Now().Add(time.Duration(result.TTLMinutes) * time.Minute),
+		password: result.Password,
 	}
 
-	// Cache the unlocked vault.
 	m.mu.Lock()
 	m.password[title] = p
 	m.mu.Unlock()
