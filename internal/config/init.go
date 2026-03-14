@@ -1,6 +1,7 @@
 package config
 
 import (
+	"desktopsecrets/internal/static"
 	"desktopsecrets/internal/utils"
 	"errors"
 	"os"
@@ -23,7 +24,7 @@ func InitConfig() error {
 		}
 	}
 
-	viper.SetDefault("ttl", 15)
+	viper.SetDefault("ttl", static.DefaultTTL)
 
 	var configFileNotFoundError viper.ConfigFileNotFoundError
 	if err := viper.ReadInConfig(); err != nil {

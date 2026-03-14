@@ -2,6 +2,7 @@ package keepass
 
 import (
 	"context"
+	"desktopsecrets/internal/prompt"
 	"desktopsecrets/internal/utils"
 	_ "embed"
 	"errors"
@@ -17,6 +18,7 @@ import (
 )
 
 type aliasMap map[string]string
+type keyfileMap map[string]string
 
 type unlockedVault struct {
 	db       *gokeepasslib.Database
@@ -26,16 +28,23 @@ type unlockedVault struct {
 }
 
 type KPManager struct {
-	aliases aliasMap
-	vaults  map[string]*unlockedVault
-	mu      sync.RWMutex
+	aliases   aliasMap
+	keyfiles  keyfileMap
+	vaults    map[string]*unlockedVault
+	mu        sync.RWMutex
+	unlockTTL *utils.AtomicDuration
 }
 
 func NewKPManager() *KPManager {
 	return &KPManager{
-		aliases: make(aliasMap),
-		vaults:  make(map[string]*unlockedVault),
+		aliases:  make(aliasMap),
+		keyfiles: make(keyfileMap),
+		vaults:   make(map[string]*unlockedVault),
 	}
+}
+
+func (m *KPManager) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
+	m.unlockTTL = unlockTTL
 }
 
 func (m *KPManager) LoadAliases() error {
@@ -74,6 +83,60 @@ func (m *KPManager) LoadAliases() error {
 	return nil
 }
 
+func (m *KPManager) LoadKeyfiles() error {
+	settingsDir, err := utils.GetSettingsDirectory()
+	if err != nil {
+		return err
+	}
+
+	keyfilesPath := filepath.Join(settingsDir, "keyfiles.yaml")
+
+	if keyfilesPathOverride := os.Getenv("DESKTOP_SECRETS_KEYFILES_FILE"); keyfilesPathOverride != "" {
+		keyfilesPath = keyfilesPathOverride
+	}
+
+	if _, err := os.Stat(keyfilesPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	data, err := os.ReadFile(keyfilesPath)
+	if err != nil {
+		return err
+	}
+
+	var kf map[string]string
+	if err := yaml.Unmarshal(data, &kf); err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	m.keyfiles = kf
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *KPManager) SaveKeyfiles() error {
+	settingsDir, err := utils.GetSettingsDirectory()
+	if err != nil {
+		return err
+	}
+
+	keyfilesPath := filepath.Join(settingsDir, "keyfiles.yaml")
+
+	if keyfilesPathOverride := os.Getenv("DESKTOP_SECRETS_KEYFILES_FILE"); keyfilesPathOverride != "" {
+		keyfilesPath = keyfilesPathOverride
+	}
+
+	m.mu.RLock()
+	data, err := yaml.Marshal(m.keyfiles)
+	m.mu.RUnlock()
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(keyfilesPath, data, 0600)
+}
+
 func (m *KPManager) ResolvePassword(ctx context.Context, vault, title string, master string, ttl time.Duration) (string, error) {
 	var alias, dbPath string
 
@@ -95,7 +158,7 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, title string, ma
 		return "", fmt.Errorf("failed to resolve path: %w", err)
 	}
 
-	// Get (or open) the unlocked vault. Prefer non-interactive unlock using nestedToken.
+	// Get (or open) the unlocked vault. Prefer non-interactive unlock using nestedToken
 	vlt, err := m.getOrOpenVault(alias, abs, master, ttl)
 	if err != nil {
 		return "", err
@@ -105,11 +168,11 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, title string, ma
 	if err != nil {
 		return "", err
 	}
+
 	return pwd, nil
 }
 
 func (m *KPManager) getOrOpenVault(key, path, master string, ttl time.Duration) (*unlockedVault, error) {
-	// Check cache.
 	m.mu.Lock()
 	if v, exists := m.vaults[key]; exists && v.db != nil && time.Now().Before(v.expires) {
 		m.mu.Unlock()
@@ -117,35 +180,71 @@ func (m *KPManager) getOrOpenVault(key, path, master string, ttl time.Duration) 
 	}
 	m.mu.Unlock()
 
-	// Try non-interactive unlock with provided token first.
-	if master != "" {
-		if u, err := m.openVaultWithMaster(path, master, ttl); err == nil {
-			// cache and return
+	// Try stored keyfile first
+	m.mu.RLock()
+	lastKeyfile := ""
+	if m.keyfiles != nil {
+		lastKeyfile = m.keyfiles[path]
+	}
+	m.mu.RUnlock()
+
+	if lastKeyfile != "" {
+		if u, err := m.openVaultWithKeyfile(path, lastKeyfile, ttl); err == nil {
 			m.mu.Lock()
 			m.vaults[key] = u
 			m.mu.Unlock()
 			return u, nil
-		} else {
-			// Fail fast: do not prompt when a token was explicitly provided.
-			return nil, fmt.Errorf("unlock with nested token failed: %w", err)
 		}
 	}
 
-	// No token provided: fall back to interactive prompt (preserve existing behavior).
-	master, err := utils.PromptForPassword(fmt.Sprintf("Unlock %s", key))
+	// Try non-interactive master password
+	if master != "" {
+		if u, err := m.openVaultWithMaster(path, master, ttl); err == nil {
+			m.mu.Lock()
+			m.vaults[key] = u
+			m.mu.Unlock()
+			return u, nil
+		}
+	}
+
+	// Fall back to interactive prompt
+	var err error
+	var u *unlockedVault
+
+	keepOpts := &prompt.KeepassOptions{
+		KeepassFile: path,
+		Keyfile:     lastKeyfile,
+		UseKeyfile:  lastKeyfile != "",
+		CurrentTTL:  int(m.unlockTTL.Load().Minutes()),
+		Check: func(useKeyfile bool, keyfile string, password string, ttl int) error {
+			if useKeyfile {
+				u, err = m.openVaultWithKeyfile(path, keyfile, time.Duration(ttl)*time.Minute)
+			} else {
+				u, err = m.openVaultWithMaster(path, password, time.Duration(ttl)*time.Minute)
+			}
+			return err
+		},
+	}
+
+	result, err := prompt.PromptForPassword("KeePass", prompt.StyleKeePass, keepOpts, nil)
 	if err != nil {
 		return nil, err
 	}
-	if master == "" {
+
+	if result.Password == "" && !result.UseKeyfile {
 		return nil, errors.New("empty master password")
 	}
 
-	u, err := m.openVaultWithMaster(path, master, ttl)
-	if err != nil {
-		return nil, err
+	if result.UseKeyfile {
+		m.mu.Lock()
+		if m.keyfiles == nil {
+			m.keyfiles = make(map[string]string)
+		}
+		m.keyfiles[path] = result.Keyfile
+		m.mu.Unlock()
+		_ = m.SaveKeyfiles()
 	}
 
-	// Cache the unlocked vault.
 	m.mu.Lock()
 	m.vaults[key] = u
 	m.mu.Unlock()
@@ -153,9 +252,43 @@ func (m *KPManager) getOrOpenVault(key, path, master string, ttl time.Duration) 
 	return u, nil
 }
 
-// helper that opens, decodes, unlocks and schedules expiry; returns unlockedVault (but does not cache)
 func (m *KPManager) openVaultWithMaster(path, master string, ttl time.Duration) (*unlockedVault, error) {
-	// Open and decode with credentials set before decode.
+	creds := gokeepasslib.NewPasswordCredentials(master)
+	return m.openVault(path, ttl, creds)
+}
+
+func (m *KPManager) openVaultWithKeyfile(path, keyfile string, ttl time.Duration) (*unlockedVault, error) {
+	info, err := os.Stat(keyfile)
+	if err != nil {
+		return nil, fmt.Errorf("stat keyfile: %w", err)
+	}
+
+	const maxPasswordSize = 4096
+
+	if info.Size() > 0 && info.Size() <= maxPasswordSize {
+		data, err := os.ReadFile(keyfile)
+		if err != nil {
+			return nil, fmt.Errorf("read keyfile: %w", err)
+		}
+
+		pwd := strings.TrimRight(string(data), "\r\n")
+
+		if pwd != "" {
+			if u, err := m.openVault(path, ttl, gokeepasslib.NewPasswordCredentials(pwd)); err == nil {
+				return u, nil
+			}
+		}
+	}
+
+	creds, err := gokeepasslib.NewKeyCredentials(keyfile)
+	if err != nil {
+		return nil, fmt.Errorf("create key credentials: %w", err)
+	}
+
+	return m.openVault(path, ttl, creds)
+}
+
+func (m *KPManager) openVault(path string, ttl time.Duration, creds *gokeepasslib.DBCredentials) (*unlockedVault, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -163,14 +296,13 @@ func (m *KPManager) openVaultWithMaster(path, master string, ttl time.Duration) 
 	defer f.Close()
 
 	db := gokeepasslib.NewDatabase()
-	db.Credentials = gokeepasslib.NewPasswordCredentials(master)
+	db.Credentials = creds
 
 	dec := gokeepasslib.NewDecoder(f)
 	if err := dec.Decode(db); err != nil {
 		return nil, fmt.Errorf("decode kdbx: %w", err)
 	}
 
-	// Unlock protected entries (no arguments).
 	db.UnlockProtectedEntries()
 
 	u := &unlockedVault{
@@ -179,7 +311,7 @@ func (m *KPManager) openVaultWithMaster(path, master string, ttl time.Duration) 
 		filename: path,
 	}
 
-	// Schedule expiry to lock and clear from cache.
+	// schedule expiry
 	go func(key string, u *unlockedVault, ttl time.Duration) {
 		timer := time.NewTimer(ttl)
 		<-timer.C
@@ -193,9 +325,6 @@ func (m *KPManager) openVaultWithMaster(path, master string, ttl time.Duration) 
 		delete(m.vaults, key)
 		m.mu.Unlock()
 	}(filepath.Base(path), u, ttl)
-
-	// Zero master variable as a best-effort hygiene step.
-	master = ""
 
 	return u, nil
 }
