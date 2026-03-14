@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"desktopsecrets/internal/utils"
 	"errors"
 	"reflect"
 	"testing"
@@ -28,6 +29,9 @@ func (f *fakeUserResolver) ResolvePassword(ctx context.Context, title string, tt
 	return "", errors.New("user not found")
 }
 
+func (f *fakeUserResolver) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
+}
+
 type fakeKPResolver struct {
 	// record calls as "vault|title|nested"
 	calls []string
@@ -50,6 +54,13 @@ func (f *fakeKPResolver) ResolvePassword(ctx context.Context, vault, title, nest
 
 func (f *fakeKPResolver) LoadAliases() error {
 	return nil
+}
+
+func (f *fakeKPResolver) LoadKeyfiles() error {
+	return nil
+}
+
+func (f *fakeKPResolver) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 }
 
 // --- Unit tests ---
