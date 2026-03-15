@@ -17,26 +17,26 @@ DesktopSecrets is a lightweight, secure utility that centralizes secret manageme
 
 ## 🔌 Secret Providers
 
-Secret providers are components that allow DesktopSecrets to retrieve secrets from various sources.
+Secret providers define how DesktopSecrets retrieves secrets from different sources
 
 ### 🔑 KeePass Provider
 
-Ask the user to provide the master password of the given vault and retrieve the given secret.
+Prompts the user for the master password of a KeePass vault and returns the requested entry.
 
-#### Link Format
+#### Format
 
 ```properties
 SECRET_NAME=keepass(VAULT|SECRET_TITLE)
 ```
 
-* VAULT = A keepass database file. 
-* SECRET_TITLE = Title of the secret inside the keepass database. 
+* VAULT = Path to a KeePass database file
+* SECRET_TITLE = Title of the entry inside the vault
 
 ### 👤 User Provider
 
-Ask the user to provide a password with the given title.
+Prompts the user to manually enter a secret value.
 
-#### Link Format
+#### Format
 
 ```properties
 SECRET_NAME=user(TITLE)
@@ -45,11 +45,9 @@ SECRET_NAME=user(TITLE)
 
 ### 📄*tplenv*
 
-A command-line client for DesktopSecrets that allows to retrieve secrets defined in one or more `.env` template files.
+A command-line tool that resolves secrets inside on or more `.env.tpl` files.
 
 ####  Usage Example 
-
-Create a `.env.tpl` file that contains references to secrets:
 
 ```properties
 DATABASE_URL=postgresql://localhost:5432/mydb
@@ -57,13 +55,13 @@ API_SECRET=keepass($USERPROFILE\Credentials.kdbx|dev-api-secret)
 LOG_LEVEL=debug
 ```
 
-Use `tplenv` to output the combined contents of all resolved `.env.tpl*` files in the current working directory, so that the output can be sourced into a shell. Learn how to source the environment with the command: `tplenv --apply-one-liner`. More options are available. See `tplenv --help` to get a list.
-
-Use `tplenv run` to run a command with the content of all resolved `.env.tpl*` files as environment. 
+Running `tplenv` prints the merged, fully resolved environment so it can be sourced into a shell.
+Use `tplenv --apply-one-liner` to learn how to apply it directly.
+Use `tplenv run` to execute a command with all resolved variables injected into the environment.
 
 ### 🛠️ *getsec*
 
-A command-line client for DesktopSecrets that allows to retrieve secrets defined as command-line arguments.
+A command‑line tool for resolving secrets passed directly as arguments.
 
 ####  Usage Example
 
@@ -89,14 +87,20 @@ Define aliases for cleaner configuration in the file `aliases.yaml`:
 Example:
 
 ```yaml
-cloud: C:\Project\ABC\Vaults\cloud-secrets.kdbx
+cloud: 
+    file: C:\Project\ABC\Vaults\cloud-secrets.kdbx
+    master: keepass(C:\Project\ABC\Vaults\personal.kdbx|Cloud Secrets)
 local: C:\Users\User\Vaults\local-secrets.kdbx
 ```
+
+Use an alias with the & prefix: ```&cloud``` or  ```&local```
+
 #### Overrides
 
 Environment overrides:
-- `DESKTOP_SECRETS_CONFIG_FILE` to override the config file
-- `DESKTOP_SECRETS_ALIASES_FILE` to override the aliases file
+- `DESKTOP_SECRETS_CONFIG_FILE` - override the config file
+- `DESKTOP_SECRETS_ALIASES_FILE` - override the aliases file
+- `DESKTOP_SECRETS_KEYFILES_FILE` - to override the keyfiles file
 
 ### Chaining
 
