@@ -17,7 +17,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type aliasMap map[string]string
+type alias struct {
+	file   string
+	master string
+}
+
+func (a *alias) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s string
+	if err := unmarshal(&s); err == nil {
+		a.file = s
+		return nil
+	}
+
+	var aux struct {
+		File   string `yaml:"file"`
+		Master string `yaml:"master"`
+	}
+	if err := unmarshal(&aux); err == nil {
+		a.file = aux.File
+		a.master = aux.Master
+		return nil
+	}
+
+	return fmt.Errorf("alias must be string or {file, master} object")
+}
+
+type aliasMap map[string]alias
 type keyfileMap map[string]string
 
 type unlockedVault struct {
@@ -74,7 +99,8 @@ func (m *KPManager) LoadAliases() error {
 	}
 
 	for k, v := range a {
-		a[k] = os.ExpandEnv(v)
+		v.file = os.ExpandEnv(v.file)
+		a[k] = v
 	}
 
 	m.mu.Lock()
@@ -137,16 +163,26 @@ func (m *KPManager) SaveKeyfiles() error {
 	return os.WriteFile(keyfilesPath, data, 0600)
 }
 
-func (m *KPManager) ResolvePassword(ctx context.Context, vault, title string, master string, ttl time.Duration) (string, error) {
+func (m *KPManager) ResolvePassword(ctx context.Context, vault, title string, master string, ttl time.Duration, resolve func(line string) (string, error)) (string, error) {
 	var alias, dbPath string
 
 	if after, ok := strings.CutPrefix(vault, "&"); ok {
 		alias = after
+
 		m.mu.RLock()
-		dbPath, ok = m.aliases[alias]
+		al, ok := m.aliases[alias]
 		m.mu.RUnlock()
+
 		if !ok {
 			return "", fmt.Errorf("alias %q not configured", alias)
+		}
+
+		dbPath = al.file
+		if al.master != "" {
+			var err error
+			if master, err = resolve(al.master); err != nil {
+				return "", fmt.Errorf("failed to resolve master for alias %q", alias)
+			}
 		}
 	} else {
 		dbPath = os.ExpandEnv(vault)

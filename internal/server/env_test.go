@@ -40,7 +40,7 @@ type fakeKPResolver struct {
 	err   error
 }
 
-func (f *fakeKPResolver) ResolvePassword(ctx context.Context, vault, title, nested string, ttl time.Duration) (string, error) {
+func (f *fakeKPResolver) ResolvePassword(ctx context.Context, vault, title, nested string, ttl time.Duration, resolve func(expr string) (string, error)) (string, error) {
 	f.calls = append(f.calls, vault+"|"+title+"|"+nested)
 	if f.err != nil {
 		return "", f.err

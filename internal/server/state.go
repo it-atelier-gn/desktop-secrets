@@ -14,7 +14,7 @@ type KPResolver interface {
 	SetUnlockTTL(unlockTTL *utils.AtomicDuration)
 	LoadAliases() error
 	LoadKeyfiles() error
-	ResolvePassword(ctx context.Context, vault, title string, master string, ttl time.Duration) (string, error)
+	ResolvePassword(ctx context.Context, vault, title string, master string, ttl time.Duration, resolve func(expr string) (string, error)) (string, error)
 }
 
 type UserResolver interface {

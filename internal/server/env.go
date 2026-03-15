@@ -121,7 +121,9 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, ttl 
 				return "", fmt.Errorf("resolving nested expression %q: %w", ne, err)
 			}
 			// pass nestedResolved via context to the upper-level KP resolver
-			pass, err := kp.ResolvePassword(ctx, base, title, nestedResolved, ttl)
+			pass, err := kp.ResolvePassword(ctx, base, title, nestedResolved, ttl, func(expr string) (string, error) {
+				return parseAndResolve(ctx, kp, user, ttl, expr)
+			})
 			if err != nil {
 				return "", fmt.Errorf("keepass resolve failed: %w", err)
 			}
@@ -129,7 +131,9 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, ttl 
 		}
 
 		// no nested expression: call resolver normally
-		pass, err := kp.ResolvePassword(ctx, base, title, "", ttl)
+		pass, err := kp.ResolvePassword(ctx, base, title, "", ttl, func(expr string) (string, error) {
+			return parseAndResolve(ctx, kp, user, ttl, expr)
+		})
 		if err != nil {
 			return "", fmt.Errorf("keepass resolve failed: %w", err)
 		}
