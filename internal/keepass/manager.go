@@ -163,7 +163,7 @@ func (m *KPManager) SaveKeyfiles() error {
 	return os.WriteFile(keyfilesPath, data, 0600)
 }
 
-func (m *KPManager) ResolvePassword(ctx context.Context, vault, title string, master string, ttl time.Duration, resolve func(line string) (string, error)) (string, error) {
+func (m *KPManager) ResolvePassword(ctx context.Context, vault, entry string, master string, ttl time.Duration, resolve func(line string) (string, error)) (string, error) {
 	var alias, dbPath string
 
 	if after, ok := strings.CutPrefix(vault, "&"); ok {
@@ -200,7 +200,9 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, title string, ma
 		return "", err
 	}
 
-	pwd, err := findPassword(vlt.db, title)
+	entry, attr := splitAttribute(entry, "Password")
+
+	pwd, err := findAttribute(vlt.db, entry, attr)
 	if err != nil {
 		return "", err
 	}
@@ -365,42 +367,159 @@ func (m *KPManager) openVault(path string, ttl time.Duration, creds *gokeepassli
 	return u, nil
 }
 
-func findPassword(db *gokeepasslib.Database, title string) (string, error) {
+func splitAttribute(s, defaultAttr string) (before, after string) {
+	if idx := strings.LastIndex(s, "|"); idx >= 0 {
+		before = s[:idx]
+		after = s[idx+1:]
+		if after == "" {
+			after = defaultAttr
+		}
+		return before, after
+	}
+	return s, "Password"
+}
+
+func findAttribute(db *gokeepasslib.Database, entry string, attributeName string) (string, error) {
 	if db == nil || db.Content.Root == nil {
 		return "", errors.New("database not unlocked")
 	}
 
-	var walkGroup func(g gokeepasslib.Group) (string, bool)
+	// Normalize pattern: if it doesn't start with '/', treat it as **/<pattern>
+	if !strings.HasPrefix(entry, "/") {
+		entry = "**/" + entry
+	}
 
-	walkGroup = func(g gokeepasslib.Group) (string, bool) {
+	patSegs, err := splitPattern(entry)
+	if err != nil {
+		return "", err
+	}
+
+	var walkGroup func(g gokeepasslib.Group, groupPath []string) (string, bool)
+
+	walkGroup = func(g gokeepasslib.Group, groupPath []string) (string, bool) {
+		// Current group path (include this group's name if non-empty)
+		curPath := groupPath
+		if g.Name != "" {
+			curPath = append(curPath, g.Name)
+		}
+
+		// Check entries in this group
 		for _, e := range g.Entries {
-			var t string
-			var p string
+			title := ""
+			attributeValue := ""
+
 			for _, v := range e.Values {
+				fmt.Println(v.Key)
 				switch v.Key {
 				case "Title":
-					t = v.Value.Content
-				case "Password":
-					p = v.Value.Content
+					title = v.Value.Content
+				case attributeName:
+					attributeValue = v.Value.Content
 				}
 			}
-			if t == title {
-				return p, true
+
+			if title == "" {
+				continue
+			}
+
+			entryPath := append(curPath, title)
+			if matchSegments(patSegs, entryPath) {
+				return attributeValue, true
 			}
 		}
+
+		// Recurse into subgroups (DFS)
 		for _, sg := range g.Groups {
-			if p, ok := walkGroup(sg); ok {
+			if p, ok := walkGroup(sg, curPath); ok {
 				return p, true
 			}
 		}
+
 		return "", false
 	}
 
 	root := db.Content.Root
 	for _, g := range root.Groups {
-		if p, ok := walkGroup(g); ok {
+		if p, ok := walkGroup(g, nil); ok {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("entry %q not found", title)
+
+	return "", fmt.Errorf("entry %q not found", entry)
+}
+
+// splitPattern splits a pattern like "/AWS/*/Prod/api-key" into segments,
+// handling ** and escaped slashes (\/).
+func splitPattern(p string) ([]string, error) {
+	// strip leading '/'
+	if strings.HasPrefix(p, "/") {
+		p = p[1:]
+	}
+
+	var segs []string
+	var buf strings.Builder
+	escaped := false
+
+	for _, r := range p {
+		switch {
+		case escaped:
+			// take character literally
+			buf.WriteRune(r)
+			escaped = false
+		case r == '\\':
+			escaped = true
+		case r == '/':
+			segs = append(segs, buf.String())
+			buf.Reset()
+		default:
+			buf.WriteRune(r)
+		}
+	}
+	if escaped {
+		return nil, fmt.Errorf("dangling escape in pattern %q", p)
+	}
+	if buf.Len() > 0 {
+		segs = append(segs, buf.String())
+	}
+
+	return segs, nil
+}
+
+// matchSegments matches pattern segments (with * and **) against a concrete path.
+func matchSegments(pattern, path []string) bool {
+	return matchSeg(pattern, path, 0, 0)
+}
+
+func matchSeg(pat, path []string, i, j int) bool {
+	// If we've consumed the whole pattern, path must also be fully consumed.
+	if i == len(pat) {
+		return j == len(path)
+	}
+
+	// If this is a **, it can match zero or more segments.
+	if pat[i] == "**" {
+		// Try all possible consumptions of path[j:].
+		for k := j; k <= len(path); k++ {
+			if matchSeg(pat, path, i+1, k) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// For anything else, we need at least one path segment left.
+	if j == len(path) {
+		return false
+	}
+
+	if pat[i] == "*" {
+		// * matches exactly one segment
+		return matchSeg(pat, path, i+1, j+1)
+	}
+
+	// Literal segment
+	if pat[i] != path[j] {
+		return false
+	}
+	return matchSeg(pat, path, i+1, j+1)
 }

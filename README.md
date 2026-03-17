@@ -7,133 +7,229 @@
 
 DesktopSecrets is a lightweight, secure utility that centralizes secret management for developers and power users on the desktop. It integrates with KeePass and local user-provided secrets to make retrieving credentials simple, scriptable, and safe, while minimizing repeated password prompts through configurable caching. Designed for workflows that require environment templating and command-line automation, DesktopSecrets helps you keep sensitive data out of source files and streamline local development and deployment tasks.
 
+---
+
 ## ✨ Features
 
-- 🔑 **KeePass Integration** – Seamlessly fetch secrets from KeePass vaults.
-- 💾 **Smart Caching** – Unlocked vaults stay accessible for a configurable duration.
-- ⚙️ **Easy Configuration** – GUI settings menu in the taskbar icon.
+- 🔑 **KeePass Integration** – Retrieve secrets from KeePass vaults using flexible path and wildcard matching.  
+- 🧩 **Secret References** – A unified syntax for referencing secrets from any provider.  
+- 🔁 **Recursive Aliases** – Define reusable secret references.  
+- 💾 **Smart Caching** – Unlocked vaults stay accessible for a configurable duration.  
+- ⚙️ **Easy Configuration** – GUI settings menu in the taskbar icon and simple YAML files.
 
 ---
 
-## 🔌 Secret Providers
+## 🔌 Secret References
 
-Secret providers define how DesktopSecrets retrieves secrets from different sources
+A *Secret Reference* is an expression that resolves to a secret value.  
+Examples:
 
-### 🔑 KeePass Provider
-
-Prompts the user for the master password of a KeePass vault and returns the requested entry.
-
-#### Format
-
-```properties
-SECRET_NAME=keepass(VAULT|SECRET_TITLE)
+```
+keepass(C:\Vaults\cloud.kdbx|/AWS/Prod/api-key)
+user(Enter API key)
 ```
 
-* VAULT = Path to a KeePass database file
-* SECRET_TITLE = Title of the entry inside the vault
+Aliases expand recursively into other secret references.
 
-### 👤 User Provider
+---
+
+## 🔑 KeePass Provider
+
+The KeePass provider retrieves secrets from `.kdbx` vaults.  
+It supports:
+
+- absolute paths  
+- wildcard paths (`*` = one level, `**` = any depth)  
+- escaped slashes (`\/`)  
+- attribute selection  
+- chaining
+
+### Basic Format
+
+```properties
+SECRET_NAME=keepass(VAULT|ENTRY)
+```
+
+- **VAULT** – Path to a KeePass database file (or alias)  
+- **ENTRY** – Title or path pattern
+
+### Entry Lookup Rules
+
+#### 1. Bare titles  
+If the entry does **not** start with `/`, it is treated as:
+
+```
+**/<title>
+```
+
+Example:
+
+```
+keepass(vault.kdbx|api-key)
+```
+
+Searches for any entry named `api-key` anywhere in the tree.
+
+#### 2. Absolute paths
+
+```
+keepass(vault.kdbx|/AWS/Prod/api-key)
+```
+
+Matches exactly that path.
+
+#### 3. Wildcards
+
+- `*` matches **one** group level  
+- `**` matches **zero or more** group levels  
+
+Examples:
+
+```
+keepass(vault.kdbx|/Root/AWS/*/api-key)
+keepass(vault.kdbx|/Root/AWS/**/api-key)
+```
+
+#### 4. Escaped slashes
+
+```
+keepass(vault.kdbx|/Root/AWS/Prod/My\/Key)
+```
+
+Matches an entry titled `My/Key`.
+
+#### 5. Attribute selection
+
+```
+keepass(vault.kdbx|/Root/AWS/Prod/api-key|UserName)
+keepass(vault.kdbx|/Root/AWS/Prod/api-key|URL)
+keepass(vault.kdbx|/Root/AWS/Prod/api-key|Notes)
+keepass(vault.kdbx|/Root/AWS/Prod/api-key|customField)
+```
+
+Attribute names are case-sensitive. If omitted, the default attribute is the `Password`.
+
+---
+
+## 👤 User Provider
 
 Prompts the user to manually enter a secret value.
 
-#### Format
-
-```properties
-SECRET_NAME=user(TITLE)
 ```
-## 🚀 Commands
-
-### 📄*tplenv*
-
-A command-line tool that resolves secrets inside on or more `.env.tpl` files.
-
-####  Usage Example 
-
-```properties
-DATABASE_URL=postgresql://localhost:5432/mydb
-API_SECRET=keepass($USERPROFILE\Credentials.kdbx|dev-api-secret)
-LOG_LEVEL=debug
+SECRET_NAME=user(Title shown in prompt)
 ```
 
-Running `tplenv` prints the merged, fully resolved environment so it can be sourced into a shell.
-Use `tplenv --apply-one-liner` to learn how to apply it directly.
-Use `tplenv run` to execute a command with all resolved variables injected into the environment.
+---
 
-### 🛠️ *getsec*
+## 🔁 Aliases
 
-A command‑line tool for resolving secrets passed directly as arguments.
-
-####  Usage Example
-
-```shell
-getsec "API_SECRET=keepass($USERPROFILE\Credentials.kdbx|dev-api-secret)"
-```
-
-## 🧑‍🎓 Advanced topics
-
-### ⚙️ Configuration
-
-Access settings via the **taskbar icon menu**.
-
-**Default Configuration Locations**
-* macOS: `~/Library/Application Support/desktop-secrets`
-* Linux: `$XDG_CONFIG_HOME/desktop-secrets` or `~/.config/desktop-secrets`
-* Windows: `%APPDATA%\desktop-secrets`
-
-#### Aliases
-
-Define aliases for cleaner configuration in the file `aliases.yaml`:
+Aliases are defined in `aliases.yaml`.
 
 Example:
 
 ```yaml
 cloud: 
-    file: C:\Project\ABC\Vaults\cloud-secrets.kdbx
-    master: keepass(C:\Project\ABC\Vaults\personal.kdbx|Cloud Secrets)
-local: C:\Users\User\Vaults\local-secrets.kdbx
+  file: C:\Vaults\cloud.kdbx 
+  master: keepass(&personal|Cloud Master Password)
+personal: C:\Vaults\personal.kdbx
 ```
 
-Use an alias with the & prefix: ```&cloud``` or  ```&local```
+Usage:
 
-#### Overrides
+```
+MAPS_API_KEY=keepass(&cloud|/Google/Prod/api-key) 
+CLAUDE_API_KEY=keepass(&personal|Claude Code API key)
+```
 
-Environment overrides:
-- `DESKTOP_SECRETS_CONFIG_FILE` - override the config file
-- `DESKTOP_SECRETS_ALIASES_FILE` - override the aliases file
-- `DESKTOP_SECRETS_KEYFILES_FILE` - to override the keyfiles file
+---
 
-### Chaining
+## 🔗 Chaining
 
-The KeePass provider supports opening a KeePass database using a secret retrieved from another KeePass database.
+KeePass vaults can be unlocked using secrets retrieved from other providers.
 
-**Example:**
+Example:
+
 ```properties
-SECRET_NAME=keepass(VAULT_A[keepass(VAULT_B|SECRET_TITLE_B)]|SECRET_TITLE_A)
+SECRET=keepass(VAULT_A[keepass(VAULT_B|MasterPassword)]|/Prod/api-key)
 ```
 
-This prompts the user for the master password of VAULT_B, uses the value of SECRET_TITLE_B from VAULT_B as the master password to unlock VAULT_A, and then retrieves SECRET_TITLE_A from VAULT_A.
+This:
 
+1. Resolves the inner secret reference  
+2. Uses it as the master password for `VAULT_A`  
+3. Retrieves the final entry
+
+Chaining works with all lookup modes, including wildcards and aliases.
+
+---
+
+## 🚀 Commands
+
+### 📄 *tplenv*
+
+Resolves secrets inside one or more `.env.tpl` files.
+
+Example:
+
+```properties
+DATABASE_URL=postgresql://localhost:5432/mydb
+API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)
+LOG_LEVEL=debug
+```
+
+`tplenv` prints the fully resolved environment.  
+Use `tplenv run` to execute a command with resolved variables injected.
+
+---
+
+### 🛠️ *getsec*
+
+Resolves a single secret reference passed directly as an argument.
+
+Example:
+
+```sh
+getsec "API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)"
+```
+
+---
+
+## ⚙️ Configuration
+
+Settings are accessible via the taskbar icon.
+
+### Default Configuration Locations
+
+- macOS: `~/Library/Application Support/desktop-secrets`
+- Linux: `$XDG_CONFIG_HOME/desktop-secrets` or `~/.config/desktop-secrets`
+- Windows: `%APPDATA%\desktop-secrets`
+
+### Environment Overrides
+
+- `DESKTOP_SECRETS_CONFIG_FILE`  
+- `DESKTOP_SECRETS_ALIASES_FILE`  
+- `DESKTOP_SECRETS_KEYFILES_FILE`
+
+---
 
 ## 🛠️ Build
 
 ### Prerequisites
 
-- Ensure Go is installed and set up.
+- Go installed and configured
 
 ### Build from Source
 
-**Standard build:**
-
-Windows
+Windows:
 
 ```pwsh
 go build -o tplenv.exe ./cmd/tplenv
 go build -o getsec.exe ./cmd/getsec
 ```
 
-Linux 
+Linux:
 
-```shell
+```sh
 go build -o tplenv ./cmd/tplenv
 go build -o getsec ./cmd/getsec
 ```
