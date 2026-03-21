@@ -1,6 +1,6 @@
 # 🔐 DesktopSecrets
 
-![CI/CD Status](https://img.shields.io/github/actions/workflow/status/it-atelier-gn/desktop-secrets/pipeline.yaml)
+![CI/CD Status](https://img.shields.io/github/actions/workflow/status/it-atelier-gn/desktop-secrets/ci.yml)
 ![Go](https://img.shields.io/github/go-mod/go-version/it-atelier-gn/desktop-secrets)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/it-atelier-gn/desktop-secrets)
@@ -86,14 +86,14 @@ Matches exactly that path.
 Examples:
 
 ```
-keepass(vault.kdbx|/Root/AWS/*/api-key)
-keepass(vault.kdbx|/Root/AWS/**/api-key)
+keepass(vault.kdbx|/AWS/*/api-key)
+keepass(vault.kdbx|/AWS/**/api-key)
 ```
 
 #### 4. Escaped slashes
 
 ```
-keepass(vault.kdbx|/Root/AWS/Prod/My\/Key)
+keepass(vault.kdbx|/AWS/Prod/My\/Key)
 ```
 
 Matches an entry titled `My/Key`.
@@ -101,10 +101,10 @@ Matches an entry titled `My/Key`.
 #### 5. Attribute selection
 
 ```
-keepass(vault.kdbx|/Root/AWS/Prod/api-key|UserName)
-keepass(vault.kdbx|/Root/AWS/Prod/api-key|URL)
-keepass(vault.kdbx|/Root/AWS/Prod/api-key|Notes)
-keepass(vault.kdbx|/Root/AWS/Prod/api-key|customField)
+keepass(vault.kdbx|/AWS/Prod/api-key|UserName)
+keepass(vault.kdbx|/AWS/Prod/api-key|URL)
+keepass(vault.kdbx|/AWS/Prod/api-key|Notes)
+keepass(vault.kdbx|/AWS/Prod/api-key|customField)
 ```
 
 Attribute names are case-sensitive. If omitted, the default attribute is the `Password`.
