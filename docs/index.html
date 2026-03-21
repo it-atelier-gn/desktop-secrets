@@ -228,6 +228,58 @@
     }
     @media (max-width: 700px) { .code-grid { grid-template-columns: 1fr; } }
 
+    /* Install */
+    .install-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .install-card {
+      background: #080814;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .platform-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-card);
+    }
+    .platform-name { font-weight: 600; font-size: 0.9rem; }
+    .platform-sub {
+      font-size: 0.75rem; color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      margin-left: auto;
+    }
+    .install-cmd-block {
+      display: flex; align-items: center;
+      padding: 1.1rem 1.25rem;
+      gap: 1rem;
+    }
+    .install-cmd-block pre {
+      flex: 1;
+      font-size: 0.78rem;
+      white-space: nowrap;
+      overflow-x: auto;
+      color: var(--accent);
+    }
+    .copy-btn {
+      flex-shrink: 0;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      padding: 0.3rem 0.7rem;
+      font-size: 0.75rem; font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .copy-btn.copied { border-color: var(--accent); color: var(--accent); }
+
     /* Download */
     .download-grid {
       display: grid;
@@ -300,6 +352,7 @@
       <li><a href="#features">Features</a></li>
       <li><a href="#how">How it works</a></li>
       <li><a href="#syntax">Syntax</a></li>
+      <li><a href="#install">Install</a></li>
       <li><a href="#download">Download</a></li>
     </ul>
   </div>
@@ -312,8 +365,8 @@
     <h1>Keep secrets out of<br><span>your .env files.</span></h1>
     <p>Plaintext credentials in .env files leak onto hard drives, into backups, and through careless commits. DesktopSecrets replaces them with references your team can safely commit — and resolves them at runtime from your own vault, with no cloud service involved.</p>
     <div class="hero-actions">
-      <a href="https://github.com/it-atelier-gn/desktop-secrets/releases/latest" class="btn btn-primary">
-        &darr; Download
+      <a href="#install" class="btn btn-primary">
+        &darr; Install
       </a>
       <a href="https://github.com/it-atelier-gn/desktop-secrets" class="btn btn-ghost">
         View on GitHub
@@ -470,6 +523,45 @@
   </div>
 </section>
 
+<!-- Install -->
+<section id="install">
+  <div class="container">
+    <div class="section-label">Install</div>
+    <h2 class="section-title">One command to get started.</h2>
+    <p class="section-subtitle">Downloads the latest release, verifies SHA256 checksums, and adds the tools to your PATH.</p>
+    <div class="install-grid">
+      <div class="install-card">
+        <div class="platform-header">
+          <span class="platform-name">Windows</span>
+          <span class="platform-sub">PowerShell</span>
+        </div>
+        <div class="install-cmd-block">
+          <pre id="cmd-win">irm https://it-atelier-gn.github.io/desktop-secrets/install.ps1 | iex</pre>
+          <button class="copy-btn" onclick="copyCmd('cmd-win', this)">Copy</button>
+        </div>
+      </div>
+      <div class="install-card">
+        <div class="platform-header">
+          <span class="platform-name">Linux</span>
+          <span class="platform-sub">bash</span>
+        </div>
+        <div class="install-cmd-block">
+          <pre id="cmd-linux">curl -fsSL https://it-atelier-gn.github.io/desktop-secrets/install.sh | bash</pre>
+          <button class="copy-btn" onclick="copyCmd('cmd-linux', this)">Copy</button>
+        </div>
+      </div>
+    </div>
+    <p style="font-size:0.85rem; color:var(--text-muted);">
+      Binaries are built by GitHub Actions from source.
+      <a href="https://github.com/it-atelier-gn/desktop-secrets/releases" style="color:var(--accent);">Browse releases</a>
+      &middot;
+      <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.ps1" style="color:var(--accent);">inspect install.ps1</a>
+      &middot;
+      <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.sh" style="color:var(--accent);">inspect install.sh</a>
+    </p>
+  </div>
+</section>
+
 <!-- Download -->
 <section id="download" class="how-bg">
   <div class="container">
@@ -526,5 +618,18 @@
   </div>
 </footer>
 
+<script>
+  function copyCmd(id, btn) {
+    var text = document.getElementById(id).textContent;
+    navigator.clipboard.writeText(text).then(function() {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(function() {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 2000);
+    });
+  }
+</script>
 </body>
 </html>
