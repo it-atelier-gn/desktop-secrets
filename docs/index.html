@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DesktopSecrets — Secret Resolution for .env Templates</title>
-  <meta name="description" content="Resolve secret references in .env.tpl templates from KeePass vaults and interactive prompts. A scriptable bridge between your code and your password manager." />
+  <title>DesktopSecrets — Clean .env Secret Handling</title>
+  <meta name="description" content="Keep secrets out of your .env files. Use .env templates you can commit to git, share with your team, and resolve at runtime from KeePass — no cloud, no fees, no repeated prompts." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -98,7 +98,7 @@
     .hero p {
       font-size: clamp(1rem, 2vw, 1.2rem);
       color: var(--text-muted);
-      max-width: 580px; margin: 0 auto 2.5rem;
+      max-width: 620px; margin: 0 auto 2.5rem;
     }
     .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
     .btn {
@@ -142,7 +142,7 @@
     }
     .section-subtitle {
       color: var(--text-muted); font-size: 1.05rem;
-      max-width: 540px; margin-bottom: 3rem;
+      max-width: 560px; margin-bottom: 3rem;
     }
 
     /* Features */
@@ -168,29 +168,32 @@
 
     /* How it works */
     .how-bg { background: var(--bg-card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 2rem;
-    }
-    .step-number {
-      font-size: 2.5rem; font-weight: 700;
-      font-family: 'JetBrains Mono', monospace;
-      line-height: 1;
-      margin-bottom: 0.75rem;
-      -webkit-text-stroke: 1px rgba(52,211,153,0.25);
-      color: transparent;
-    }
-    .step h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
-    .step p { font-size: 0.9rem; color: var(--text-muted); }
 
-    /* Code examples */
-    .code-grid {
+    .how-layout {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
+      gap: 4rem;
+      align-items: start;
     }
-    @media (max-width: 700px) { .code-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 800px) { .how-layout { grid-template-columns: 1fr; gap: 2.5rem; } }
+
+    .steps { display: flex; flex-direction: column; gap: 2rem; }
+    .step { display: flex; gap: 1.25rem; align-items: flex-start; }
+    .step-number {
+      font-size: 1.5rem; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1; flex-shrink: 0;
+      width: 2.5rem; text-align: right;
+      -webkit-text-stroke: 1px rgba(52,211,153,0.35);
+      color: transparent;
+    }
+    .step-body h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.3rem; }
+    .step-body p { font-size: 0.9rem; color: var(--text-muted); }
+
+    .how-code { position: sticky; top: 80px; }
+    .how-code .code-block { background: #080814; }
+
+    /* Code blocks */
     .code-block {
       background: #080814;
       border: 1px solid var(--border);
@@ -214,6 +217,16 @@
     .str { color: #a3e635; }
     .key { color: #e2e8f0; }
     .cmt { color: #4a5568; }
+    .cmd { color: #93c5fd; }
+    .out { color: #718096; }
+
+    /* Syntax section */
+    .code-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 700px) { .code-grid { grid-template-columns: 1fr; } }
 
     /* Download */
     .download-grid {
@@ -295,9 +308,9 @@
 <!-- Hero -->
 <section class="hero">
   <div>
-    <div class="hero-badge">Open Source &middot; Go &middot; KeePass</div>
-    <h1>Resolve secrets,<br><span>not manage them.</span></h1>
-    <p>DesktopSecrets is a resolution engine for .env.tpl templates. It bridges your code and your KeePass vaults — resolving secret references into environment variables so credentials never end up in source files.</p>
+    <div class="hero-badge">Open Source &middot; Go &middot; KeePass &middot; dotenv</div>
+    <h1>Keep secrets out of<br><span>your .env files.</span></h1>
+    <p>Plaintext credentials in .env files leak onto hard drives, into backups, and through careless commits. DesktopSecrets replaces them with references your team can safely commit — and resolves them at runtime from your own vault, with no cloud service involved.</p>
     <div class="hero-actions">
       <a href="https://github.com/it-atelier-gn/desktop-secrets/releases/latest" class="btn btn-primary">
         &darr; Download
@@ -318,38 +331,38 @@
 <section id="features">
   <div class="container">
     <div class="section-label">Features</div>
-    <h2 class="section-title">The bridge between your code and your vaults.</h2>
-    <p class="section-subtitle">DesktopSecrets doesn't store secrets — it resolves them from the tools that do.</p>
+    <h2 class="section-title">Everything a plaintext .env gets wrong, fixed.</h2>
+    <p class="section-subtitle">No secrets on disk. No cloud middleman. No friction.</p>
     <div class="features-grid">
       <div class="feature-card">
+        <div class="feature-icon">&#x1f6ab;</div>
+        <h3>No secrets on your hard drive</h3>
+        <p>Your .env.tpl contains only references, never real values. Secrets are resolved in memory at runtime and injected directly into your process — nothing written to disk.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4c2;</div>
+        <h3>Check templates into git. Share with your team.</h3>
+        <p>A .env.tpl without real credentials is safe to commit. Your whole team works from the same template — each person's local vault provides their own credentials.</p>
+      </div>
+      <div class="feature-card">
         <div class="feature-icon">&#x1f511;</div>
-        <h3>KeePass vault lookups</h3>
-        <p>Read entries from .kdbx vaults using flexible path matching — wildcards, absolute paths, attribute selection. Your vault stays in charge.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f4c4;</div>
-        <h3>Template-based .env files</h3>
-        <p>Write .env.tpl files with secret references instead of plaintext credentials. Commit them safely — tplenv resolves them at runtime.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f501;</div>
-        <h3>Recursive aliases &amp; chaining</h3>
-        <p>Define vault shortcuts in aliases.yaml. Chain master passwords across vaults — one unlock can feed into the next.</p>
+        <h3>KeePass — battle-tested, open-source, yours</h3>
+        <p>KeePass has been audited for decades. It's offline, open-source, and your data stays exactly where you put it. No subscription, no vendor lock-in, no data sovereignty concerns.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x23f3;</div>
-        <h3>Caching daemon</h3>
-        <p>A background daemon caches unlocked vaults for a configurable TTL. No repeated master password prompts during your workflow.</p>
+        <h3>Cached unlocks. No nagging.</h3>
+        <p>A background daemon caches unlocked vaults for a configurable TTL. Enter your master password once — it stays available for the rest of your session without repeated prompts.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">&#x1f5a5;&#xfe0f;</div>
-        <h3>System tray &amp; GUI prompts</h3>
-        <p>Runs in the system tray with settings UI. Master passwords and user-provided secrets are entered via native dialogs.</p>
+        <div class="feature-icon">&#x1f9e9;</div>
+        <h3>Built for extensibility</h3>
+        <p>The provider interface is open. KeePass ships today, and a <code>user()</code> prompt provider is already built in. Add your own — HashiCorp Vault, 1Password, anything — with a small Go interface.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">&#x1f4e6;</div>
-        <h3>CLI &amp; Go library</h3>
-        <p>Use tplenv to resolve entire templates, getsec for single values, or import as a Go module for programmatic resolution.</p>
+        <div class="feature-icon">&#x1f916;</div>
+        <h3>Safe secret injection for AI agents</h3>
+        <p>AI coding agents and automation pipelines need API keys. <code>tplenv run</code> injects secrets into the agent process without writing them to disk or leaking them into the agent's file context.</p>
       </div>
     </div>
   </div>
@@ -359,23 +372,58 @@
 <section id="how" class="how-bg">
   <div class="container">
     <div class="section-label">How it works</div>
-    <h2 class="section-title">Three steps.</h2>
-    <p class="section-subtitle" style="margin-bottom:3.5rem;">From template to resolved environment in seconds.</p>
-    <div class="steps">
-      <div class="step">
-        <div class="step-number">01</div>
-        <h3>Create a .env.tpl</h3>
-        <p>Replace plaintext credentials with secret references like <code>keepass(vault.kdbx|api-key)</code>. Commit the template safely to git.</p>
+    <h2 class="section-title">One command. Secrets injected.</h2>
+    <p class="section-subtitle" style="margin-bottom:3.5rem;">Write a template, run your tool through <code>tplenv run</code> — that's the whole workflow.</p>
+    <div class="how-layout">
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">01</div>
+          <div class="step-body">
+            <h3>Write a .env.tpl</h3>
+            <p>Replace every credential with a secret reference. The file contains no real values — it's safe to commit and share.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">02</div>
+          <div class="step-body">
+            <h3>Run your tool through <code>tplenv run</code></h3>
+            <p>DesktopSecrets connects to the background daemon, which unlocks your KeePass vault (prompting only when the cache is cold) and resolves every reference from the template.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">03</div>
+          <div class="step-body">
+            <h3>Your process starts with secrets already in its environment</h3>
+            <p>Resolved values are injected as environment variables into the child process. Nothing is written to disk. The .env file your tool "sees" never exists as a file.</p>
+          </div>
+        </div>
       </div>
-      <div class="step">
-        <div class="step-number">02</div>
-        <h3>Run tplenv or getsec</h3>
-        <p>The CLI connects to the background daemon, which unlocks your KeePass vault (prompting only when needed) and resolves every reference.</p>
-      </div>
-      <div class="step">
-        <div class="step-number">03</div>
-        <h3>Secrets flow into your process</h3>
-        <p>Use <code>tplenv run</code> to launch a command with resolved env vars injected, or pipe the output wherever you need it.</p>
+
+      <div class="how-code">
+        <div class="code-block">
+          <div class="code-label">.env.tpl <span>&mdash; commit this</span></div>
+          <pre><span class="key">DATABASE_URL</span>=<span class="kw">keepass</span>(<span class="str">&amp;personal</span>|<span class="str">/Dev/postgres</span>|<span class="str">Notes</span>)
+<span class="key">AWS_ACCESS_KEY_ID</span>=<span class="kw">keepass</span>(<span class="str">&amp;cloud</span>|<span class="str">/AWS/Prod/access-key</span>)
+<span class="key">AWS_SECRET_ACCESS_KEY</span>=<span class="kw">keepass</span>(<span class="str">&amp;cloud</span>|<span class="str">/AWS/Prod/secret-key</span>)
+<span class="key">DEPLOY_TOKEN</span>=<span class="kw">user</span>(<span class="str">Enter deploy token</span>)
+<span class="key">APP_ENV</span>=<span class="str">production</span></pre>
+        </div>
+
+        <div class="code-block" style="margin-top:1rem;">
+          <div class="code-label">Terminal <span>&mdash; run anything through it</span></div>
+          <pre><span class="cmt"># Start your app with secrets injected</span>
+<span class="cmd">$ tplenv run -- npm start</span>
+
+<span class="cmt"># Run a database migration</span>
+<span class="cmd">$ tplenv run -- flyway migrate</span>
+
+<span class="cmt"># Launch an AI agent with its API keys</span>
+<span class="cmd">$ tplenv run -- claude --dangerously-skip-permissions</span>
+
+<span class="out">&#x2714; vault unlocked (cached 3h)</span>
+<span class="out">&#x2714; 4 secrets resolved</span>
+<span class="out">&#x2714; process started</span></pre>
+        </div>
       </div>
     </div>
   </div>
@@ -399,7 +447,7 @@
 <span class="cmt"># Attribute selection</span>
 <span class="key">DB_USER</span>=<span class="kw">keepass</span>(<span class="str">vault.kdbx</span>|<span class="str">/DB/prod</span>|<span class="str">UserName</span>)
 
-<span class="cmt"># User prompt</span>
+<span class="cmt"># Interactive prompt</span>
 <span class="key">TOKEN</span>=<span class="kw">user</span>(<span class="str">Enter deploy token</span>)</pre>
       </div>
       <div class="code-block">
@@ -412,7 +460,7 @@
   <span class="key">file</span>: <span class="str">C:\Vaults\cloud.kdbx</span>
   <span class="key">master</span>: <span class="kw">keepass</span>(<span class="str">&amp;personal</span>|<span class="str">Cloud Master</span>)
 
-<span class="cmt"># Usage</span>
+<span class="cmt"># Usage in .env.tpl</span>
 <span class="key">SECRET</span>=<span class="kw">keepass</span>(<span class="str">&amp;cloud</span>|<span class="str">/Prod/api-key</span>)</pre>
       </div>
     </div>
@@ -457,7 +505,7 @@
     <p>
       Built by <a href="http://www.georg-nelles.de" target="_blank" rel="noopener">Georg Nelles</a> &mdash;
       freelance software engineer specializing in automation, modernization, and pragmatic tooling.
-      DesktopSecrets is an open-source bridge between your code and your password manager.
+      DesktopSecrets is open-source. Your secrets stay on your machine.
     </p>
     <div class="about-links">
       <a href="http://www.georg-nelles.de" class="btn btn-ghost" target="_blank" rel="noopener">georg-nelles.de &rarr;</a>
