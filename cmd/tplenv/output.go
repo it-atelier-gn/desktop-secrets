@@ -131,7 +131,7 @@ func oneLinerForShell(shell, exeName string) string {
 	case "cmd":
 		// cmd.exe interactive: for /f "delims=" %L in ('exe --shell=cmd env') do @%L
 		// Note: inside a batch file you must double the % to %%L.
-		return fmt.Sprintf(`for /f "delims=" %L in ('%s --shell=cmd env') do @%L`, "%", exeName)
+		return fmt.Sprintf(`for /f "delims=" %%L in ('%s --shell=cmd env') do @%%L`, exeName)
 	default:
 		// fallback: show all three suggestions
 		return fmt.Sprintf("# POSIX: eval \"$(%s env)\"\n# PowerShell: %s env | Invoke-Expression\n# cmd: for /f \"delims=\" %%L in ('%s env') do @%%L", exeName, exeName, exeName)

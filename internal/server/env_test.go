@@ -2,8 +2,8 @@ package server
 
 import (
 	"context"
-	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 	"errors"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 	"reflect"
 	"testing"
 	"time"
@@ -61,6 +61,23 @@ func (f *fakeKPResolver) LoadKeyfiles() error {
 }
 
 func (f *fakeKPResolver) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
+}
+
+type fakeWincredResolver struct {
+	// map "target|field" -> value
+	creds map[string]string
+	err   error
+}
+
+func (f *fakeWincredResolver) Resolve(_ context.Context, target, field string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	k := target + "|" + field
+	if v, ok := f.creds[k]; ok {
+		return v, nil
+	}
+	return "", errors.New("wincred entry not found")
 }
 
 // --- Unit tests ---
@@ -144,7 +161,7 @@ func TestParseAndResolve_UserAndKeepass_NoNested(t *testing.T) {
 	kp := &fakeKPResolver{creds: map[string]string{"/path.kdbx|entry|": "entry-pass"}}
 
 	// user(...)
-	got, err := parseAndResolve(ctx, kp, user, 0, "user(alice)")
+	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, "user(alice)")
 	if err != nil {
 		t.Fatalf("user parseAndResolve error: %v", err)
 	}
@@ -153,7 +170,7 @@ func TestParseAndResolve_UserAndKeepass_NoNested(t *testing.T) {
 	}
 
 	// keepass(vault|entry) without nested
-	got, err = parseAndResolve(ctx, kp, user, 0, "keepass(/path.kdbx|entry)")
+	got, err = parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, "keepass(/path.kdbx|entry)")
 	if err != nil {
 		t.Fatalf("keepass parseAndResolve error: %v", err)
 	}
@@ -173,7 +190,7 @@ func TestParseAndResolve_Keepass_WithNestedUser(t *testing.T) {
 	}
 
 	expr := `keepass(outer.kdbx[user(creds)]|title)`
-	got, err := parseAndResolve(ctx, kp, user, 0, expr)
+	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, expr)
 	if err != nil {
 		t.Fatalf("nested parseAndResolve error: %v", err)
 	}
@@ -201,8 +218,9 @@ func TestResolveEnvLines_Integration(t *testing.T) {
 	}
 
 	app := &AppState{
-		KP:   kp,
-		USER: user,
+		KP:      kp,
+		USER:    user,
+		WINCRED: &fakeWincredResolver{},
 	}
 
 	lines := []string{
@@ -241,7 +259,7 @@ func TestParseAndResolve_Malformed(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if _, err := parseAndResolve(ctx, kp, user, 0, c); err == nil {
+		if _, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, c); err == nil {
 			t.Fatalf("expected error for %q, got nil", c)
 		}
 	}
@@ -253,7 +271,7 @@ func TestParseAndResolve_DoubleNestedRejected(t *testing.T) {
 	kp := &fakeKPResolver{}
 
 	expr := "keepass(outer.kdbx[keepass(inner.kdbx[keepass(deeper.kdbx|t)]|x)]|title)"
-	if _, err := parseAndResolve(ctx, kp, user, 0, expr); err == nil {
+	if _, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, expr); err == nil {
 		t.Fatalf("expected error for double-nested expression, got nil")
 	}
 }
@@ -263,12 +281,46 @@ func TestNestedSecretPassedToKP(t *testing.T) {
 	user := &fakeUserResolver{creds: map[string]string{"creds": "inner-pass"}}
 	kp := &fakeKPResolver{creds: map[string]string{"outer.kdbx|title|inner-pass": "ok"}}
 
-	got, err := parseAndResolve(ctx, kp, user, 0, "keepass(outer.kdbx[user(creds)]|title)")
+	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, "keepass(outer.kdbx[user(creds)]|title)")
 	if err != nil || got != "ok" {
 		t.Fatalf("unexpected result: %v %v", got, err)
 	}
 	if len(kp.calls) != 1 || kp.calls[0] != "outer.kdbx|title|inner-pass" {
 		t.Fatalf("kp did not receive nested arg; calls=%v", kp.calls)
+	}
+}
+
+func TestParseAndResolve_Wincred(t *testing.T) {
+	ctx := context.Background()
+	kp := &fakeKPResolver{}
+	user := &fakeUserResolver{}
+	wc := &fakeWincredResolver{creds: map[string]string{
+		"MyApp/DBPassword|":         "dbpass",
+		"MyApp/DBPassword|password": "dbpass",
+		"MyApp/DBPassword|username": "dbuser",
+	}}
+
+	// default field (password)
+	got, err := parseAndResolve(ctx, kp, user, wc, 0, "wincred(MyApp/DBPassword)")
+	if err != nil || got != "dbpass" {
+		t.Fatalf("wincred default: got %q, err %v", got, err)
+	}
+
+	// explicit password field
+	got, err = parseAndResolve(ctx, kp, user, wc, 0, "wincred(MyApp/DBPassword|password)")
+	if err != nil || got != "dbpass" {
+		t.Fatalf("wincred password: got %q, err %v", got, err)
+	}
+
+	// username field
+	got, err = parseAndResolve(ctx, kp, user, wc, 0, "wincred(MyApp/DBPassword|username)")
+	if err != nil || got != "dbuser" {
+		t.Fatalf("wincred username: got %q, err %v", got, err)
+	}
+
+	// empty target
+	if _, err := parseAndResolve(ctx, kp, user, wc, 0, "wincred()"); err == nil {
+		t.Fatal("expected error for empty wincred target")
 	}
 }
 
