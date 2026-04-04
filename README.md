@@ -121,6 +121,38 @@ SECRET_NAME=user(Title shown in prompt)
 
 ---
 
+## 🪟 Windows Credential Manager Provider *(Windows only)*
+
+Retrieves secrets from the Windows Credential Manager — the built-in credential store accessible via **Control Panel › Credential Manager**.
+
+Create entries with `cmdkey` or the GUI:
+
+```powershell
+cmdkey /generic:"MyApp/DBPassword" /user:"myuser" /pass:"mysecret"
+```
+
+### Format
+
+```properties
+SECRET_NAME=wincred(TARGET)              # password field (default)
+SECRET_NAME=wincred(TARGET|password)     # password field (explicit)
+SECRET_NAME=wincred(TARGET|username)     # username field
+```
+
+- **TARGET** — The credential target name used when storing the credential
+- **Field** — `password` (default) or `username`
+
+### Example
+
+```properties
+DB_PASSWORD=wincred(MyApp/DBPassword)
+DB_USER=wincred(MyApp/DBPassword|username)
+```
+
+No master password or TTL needed — access is transparent as long as you are logged into Windows.
+
+---
+
 ## 🔁 Aliases
 
 Aliases are defined in `aliases.yaml`.

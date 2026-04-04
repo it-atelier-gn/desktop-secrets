@@ -410,7 +410,6 @@ func findAttribute(db *gokeepasslib.Database, entry string, attributeName string
 			attributeValue := ""
 
 			for _, v := range e.Values {
-				fmt.Println(v.Key)
 				switch v.Key {
 				case "Title":
 					title = v.Value.Content

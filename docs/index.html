@@ -351,6 +351,7 @@
     <ul class="nav-links">
       <li><a href="#features">Features</a></li>
       <li><a href="#how">How it works</a></li>
+      <li><a href="#providers">Providers</a></li>
       <li><a href="#syntax">Syntax</a></li>
       <li><a href="#install">Install</a></li>
       <li><a href="#download">Download</a></li>
@@ -361,7 +362,7 @@
 <!-- Hero -->
 <section class="hero">
   <div>
-    <div class="hero-badge">Open Source &middot; Go &middot; KeePass &middot; dotenv</div>
+    <div class="hero-badge">Open Source &middot; Go &middot; KeePass &middot; Windows Credential Manager &middot; dotenv</div>
     <h1>Keep secrets out of<br><span>your .env files.</span></h1>
     <p>Plaintext credentials in .env files leak onto hard drives, into backups, and through careless commits. DesktopSecrets replaces them with references your team can safely commit — and resolves them at runtime from your own vault, with no cloud service involved.</p>
     <div class="hero-actions">
@@ -408,9 +409,14 @@
         <p>A background daemon caches unlocked vaults for a configurable TTL. Enter your master password once — it stays available for the rest of your session without repeated prompts.</p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon">&#x1fa9f;</div>
+        <h3>Windows Credential Manager — zero setup</h3>
+        <p>On Windows, use the built-in credential store you already have. <code>wincred(target)</code> retrieves passwords and usernames stored via <code>cmdkey</code> or the Credential Manager GUI — no extra tools, no master password.</p>
+      </div>
+      <div class="feature-card">
         <div class="feature-icon">&#x1f9e9;</div>
         <h3>Built for extensibility</h3>
-        <p>The provider interface is open. KeePass ships today, and a <code>user()</code> prompt provider is already built in. Add your own — HashiCorp Vault, 1Password, anything — with a small Go interface.</p>
+        <p>The provider interface is open. Add your own — HashiCorp Vault, AWS Secrets Manager, 1Password — with a small Go interface. Multiple providers can be mixed freely in a single template.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1f916;</div>
@@ -482,6 +488,35 @@
   </div>
 </section>
 
+<!-- Providers -->
+<section id="providers">
+  <div class="container">
+    <div class="section-label">Providers</div>
+    <h2 class="section-title">Pick your secret source.</h2>
+    <p class="section-subtitle">Mix and match providers freely in a single template. Each reference resolves independently.</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f511;</div>
+        <h3><code>keepass(...)</code> &mdash; KeePass</h3>
+        <p>Retrieve secrets from <code>.kdbx</code> vaults. Supports absolute paths, wildcards, attribute selection, aliases, and chained vault unlocking.</p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">keepass(vault.kdbx|/AWS/Prod/key)</code></p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1fa9f;</div>
+        <h3><code>wincred(...)</code> &mdash; Windows Credential Manager</h3>
+        <p>Retrieve passwords and usernames from the built-in Windows Credential Manager. No master password, no TTL — transparent once logged in. <em>Windows only.</em></p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">wincred(MyApp/DBPassword|username)</code></p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4ac;</div>
+        <h3><code>user(...)</code> &mdash; Interactive Prompt</h3>
+        <p>Show a GUI prompt and ask the user to type a secret. Useful for one-off tokens, OTPs, or anything that shouldn't be stored at all.</p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">user(Enter deploy token)</code></p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- Syntax -->
 <section id="syntax">
   <div class="container">
@@ -497,8 +532,9 @@
 <span class="cmt"># Wildcard matching</span>
 <span class="key">DB_PASS</span>=<span class="kw">keepass</span>(<span class="str">vault.kdbx</span>|<span class="str">/DB/**/password</span>)
 
-<span class="cmt"># Attribute selection</span>
-<span class="key">DB_USER</span>=<span class="kw">keepass</span>(<span class="str">vault.kdbx</span>|<span class="str">/DB/prod</span>|<span class="str">UserName</span>)
+<span class="cmt"># Windows Credential Manager</span>
+<span class="key">DB_PASS</span>=<span class="kw">wincred</span>(<span class="str">MyApp/DBPassword</span>)
+<span class="key">DB_USER</span>=<span class="kw">wincred</span>(<span class="str">MyApp/DBPassword</span>|<span class="str">username</span>)
 
 <span class="cmt"># Interactive prompt</span>
 <span class="key">TOKEN</span>=<span class="kw">user</span>(<span class="str">Enter deploy token</span>)</pre>
