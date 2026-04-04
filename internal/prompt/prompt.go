@@ -1,9 +1,10 @@
 package prompt
 
 import (
-	"desktopsecrets/assets"
-	"desktopsecrets/internal/static"
 	"fmt"
+
+	"github.com/it-atelier-gn/desktop-secrets/assets"
+	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"

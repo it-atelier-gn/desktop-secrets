@@ -1,4 +1,4 @@
-module desktopsecrets
+module github.com/it-atelier-gn/desktop-secrets
 
 go 1.26
 

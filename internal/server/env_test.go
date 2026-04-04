@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"desktopsecrets/internal/utils"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 	"errors"
 	"reflect"
 	"testing"

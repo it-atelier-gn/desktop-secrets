@@ -2,8 +2,6 @@ package keepass
 
 import (
 	"context"
-	"desktopsecrets/internal/prompt"
-	"desktopsecrets/internal/utils"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -12,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
 	"github.com/tobischo/gokeepasslib/v3"
 	"gopkg.in/yaml.v3"

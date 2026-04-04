@@ -2,12 +2,6 @@ package main
 
 import (
 	"context"
-	"desktopsecrets/internal/client"
-	"desktopsecrets/internal/env"
-	"desktopsecrets/internal/run"
-	"desktopsecrets/internal/server"
-	"desktopsecrets/internal/utils"
-	"desktopsecrets/internal/version"
 	"flag"
 	"fmt"
 	"log"
@@ -15,10 +9,21 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	desktopsecrets "github.com/it-atelier-gn/desktop-secrets"
+	"github.com/it-atelier-gn/desktop-secrets/internal/client"
+	"github.com/it-atelier-gn/desktop-secrets/internal/env"
+	"github.com/it-atelier-gn/desktop-secrets/internal/run"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
+	"github.com/it-atelier-gn/desktop-secrets/internal/version"
 )
 
 func main() {
-	var versionFlag, daemonFlag bool
+	if desktopsecrets.Init() {
+		return
+	}
+
+	var versionFlag bool
 	var shellFlag string
 	var formatFlag string
 	var onlyFlag string
@@ -26,7 +31,6 @@ func main() {
 	var applyOneLiner bool
 
 	flag.BoolVar(&versionFlag, "version", false, "print version")
-	flag.BoolVar(&daemonFlag, "daemon", false, "run as daemon (tray + HTTP server)")
 	flag.StringVar(&shellFlag, "shell", "auto", "shell to output env for: auto|sh|pwsh|cmd (auto-detect if auto)")
 	flag.StringVar(&formatFlag, "format", "env", "output format: env|json|raw")
 	flag.StringVar(&onlyFlag, "only", "", "comma-separated list of variables to include (optional)")
@@ -36,11 +40,6 @@ func main() {
 
 	if versionFlag {
 		version.PrintVersion()
-		return
-	}
-
-	if daemonFlag {
-		server.RunDaemon()
 		return
 	}
 

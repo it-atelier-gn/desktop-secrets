@@ -1,11 +1,12 @@
 package config
 
 import (
-	"desktopsecrets/internal/static"
-	"desktopsecrets/internal/utils"
 	"errors"
 	"os"
 	"path"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/static"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
 	"github.com/spf13/viper"
 )

@@ -3,11 +3,12 @@ package client
 import (
 	"bytes"
 	"context"
-	"desktopsecrets/internal/shm"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 )
 
 // Render by calling the daemon: send the .env.tpl content and read result.

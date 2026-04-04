@@ -2,13 +2,14 @@ package client
 
 import (
 	"context"
-	"desktopsecrets/internal/shm"
-	"desktopsecrets/internal/utils"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 )
 
 // Start the daemon (tray) if it’s not running. Wait until /health OK or timeout.

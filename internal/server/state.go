@@ -2,10 +2,11 @@ package server
 
 import (
 	"context"
-	"desktopsecrets/internal/keepass"
-	"desktopsecrets/internal/user"
-	"desktopsecrets/internal/utils"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
+	"github.com/it-atelier-gn/desktop-secrets/internal/user"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
 	"github.com/spf13/viper"
 )

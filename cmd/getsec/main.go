@@ -2,29 +2,28 @@ package main
 
 import (
 	"context"
-	"desktopsecrets/internal/client"
-	"desktopsecrets/internal/server"
-	"desktopsecrets/internal/version"
 	"flag"
 	"fmt"
 	"log"
 	"strings"
 	"time"
+
+	desktopsecrets "github.com/it-atelier-gn/desktop-secrets"
+	"github.com/it-atelier-gn/desktop-secrets/internal/client"
+	"github.com/it-atelier-gn/desktop-secrets/internal/version"
 )
 
 func main() {
-	var versionFlag, daemonFlag bool
+	if desktopsecrets.Init() {
+		return
+	}
+
+	var versionFlag bool
 	flag.BoolVar(&versionFlag, "version", false, "print version")
-	flag.BoolVar(&daemonFlag, "daemon", false, "run as daemon (tray + HTTP server)")
 	flag.Parse()
 
 	if versionFlag {
 		version.PrintVersion()
-		return
-	}
-
-	if daemonFlag {
-		server.RunDaemon()
 		return
 	}
 

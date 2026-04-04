@@ -2,11 +2,12 @@ package user
 
 import (
 	"context"
-	"desktopsecrets/internal/prompt"
-	"desktopsecrets/internal/utils"
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 )
 
 type passwordEntry struct {

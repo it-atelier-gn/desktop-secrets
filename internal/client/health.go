@@ -2,10 +2,11 @@ package client
 
 import (
 	"context"
-	"desktopsecrets/internal/shm"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 )
 
 // Try a quick health check to an existing daemon.
