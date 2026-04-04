@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/aws"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
 	"github.com/it-atelier-gn/desktop-secrets/internal/user"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
@@ -28,10 +29,16 @@ type WincredResolver interface {
 	Resolve(ctx context.Context, target, field string) (string, error)
 }
 
+type AWSResolver interface {
+	ResolveSecret(ctx context.Context, secretID, field string) (string, error)
+	ResolveParameter(ctx context.Context, name, field string) (string, error)
+}
+
 type AppState struct {
 	KP         KPResolver
 	USER       UserResolver
 	WINCRED    WincredResolver
+	AWS        AWSResolver
 	UnlockTTL  utils.AtomicDuration
 	ShouldExit utils.AtomicBool
 
@@ -39,13 +46,15 @@ type AppState struct {
 }
 
 func NewAppState() *AppState {
+	ttl := time.Duration(viper.GetInt("ttl")) * time.Minute
 	a := &AppState{
 		KP:        keepass.NewKPManager(),
 		USER:      user.NewUserManager(),
 		WINCRED:   wincred.NewManager(),
+		AWS:       aws.NewManager(ttl),
 		UnlockTTL: utils.AtomicDuration{},
 	}
-	a.UnlockTTL.Store(time.Duration(viper.GetInt("ttl")) * time.Minute)
+	a.UnlockTTL.Store(ttl)
 
 	a.USER.SetUnlockTTL(&a.UnlockTTL)
 	a.KP.SetUnlockTTL(&a.UnlockTTL)

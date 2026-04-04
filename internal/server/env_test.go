@@ -63,6 +63,34 @@ func (f *fakeKPResolver) LoadKeyfiles() error {
 func (f *fakeKPResolver) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 }
 
+type fakeAWSResolver struct {
+	secrets    map[string]string // "sm:id|field" -> value
+	parameters map[string]string // "ps:name|field" -> value
+	err        error
+}
+
+func (f *fakeAWSResolver) ResolveSecret(_ context.Context, secretID, field string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	k := "sm:" + secretID + "|" + field
+	if v, ok := f.secrets[k]; ok {
+		return v, nil
+	}
+	return "", errors.New("secret not found")
+}
+
+func (f *fakeAWSResolver) ResolveParameter(_ context.Context, name, field string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	k := "ps:" + name + "|" + field
+	if v, ok := f.parameters[k]; ok {
+		return v, nil
+	}
+	return "", errors.New("parameter not found")
+}
+
 type fakeWincredResolver struct {
 	// map "target|field" -> value
 	creds map[string]string
@@ -161,7 +189,7 @@ func TestParseAndResolve_UserAndKeepass_NoNested(t *testing.T) {
 	kp := &fakeKPResolver{creds: map[string]string{"/path.kdbx|entry|": "entry-pass"}}
 
 	// user(...)
-	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, "user(alice)")
+	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, &fakeAWSResolver{}, 0, "user(alice)")
 	if err != nil {
 		t.Fatalf("user parseAndResolve error: %v", err)
 	}
@@ -170,7 +198,7 @@ func TestParseAndResolve_UserAndKeepass_NoNested(t *testing.T) {
 	}
 
 	// keepass(vault|entry) without nested
-	got, err = parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, "keepass(/path.kdbx|entry)")
+	got, err = parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, &fakeAWSResolver{}, 0, "keepass(/path.kdbx|entry)")
 	if err != nil {
 		t.Fatalf("keepass parseAndResolve error: %v", err)
 	}
@@ -190,7 +218,7 @@ func TestParseAndResolve_Keepass_WithNestedUser(t *testing.T) {
 	}
 
 	expr := `keepass(outer.kdbx[user(creds)]|title)`
-	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, expr)
+	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, &fakeAWSResolver{}, 0, expr)
 	if err != nil {
 		t.Fatalf("nested parseAndResolve error: %v", err)
 	}
@@ -221,6 +249,7 @@ func TestResolveEnvLines_Integration(t *testing.T) {
 		KP:      kp,
 		USER:    user,
 		WINCRED: &fakeWincredResolver{},
+		AWS:     &fakeAWSResolver{},
 	}
 
 	lines := []string{
@@ -259,7 +288,7 @@ func TestParseAndResolve_Malformed(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if _, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, c); err == nil {
+		if _, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, &fakeAWSResolver{}, 0, c); err == nil {
 			t.Fatalf("expected error for %q, got nil", c)
 		}
 	}
@@ -271,7 +300,7 @@ func TestParseAndResolve_DoubleNestedRejected(t *testing.T) {
 	kp := &fakeKPResolver{}
 
 	expr := "keepass(outer.kdbx[keepass(inner.kdbx[keepass(deeper.kdbx|t)]|x)]|title)"
-	if _, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, expr); err == nil {
+	if _, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, &fakeAWSResolver{}, 0, expr); err == nil {
 		t.Fatalf("expected error for double-nested expression, got nil")
 	}
 }
@@ -281,7 +310,7 @@ func TestNestedSecretPassedToKP(t *testing.T) {
 	user := &fakeUserResolver{creds: map[string]string{"creds": "inner-pass"}}
 	kp := &fakeKPResolver{creds: map[string]string{"outer.kdbx|title|inner-pass": "ok"}}
 
-	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, 0, "keepass(outer.kdbx[user(creds)]|title)")
+	got, err := parseAndResolve(ctx, kp, user, &fakeWincredResolver{}, &fakeAWSResolver{}, 0, "keepass(outer.kdbx[user(creds)]|title)")
 	if err != nil || got != "ok" {
 		t.Fatalf("unexpected result: %v %v", got, err)
 	}
@@ -301,26 +330,84 @@ func TestParseAndResolve_Wincred(t *testing.T) {
 	}}
 
 	// default field (password)
-	got, err := parseAndResolve(ctx, kp, user, wc, 0, "wincred(MyApp/DBPassword)")
+	got, err := parseAndResolve(ctx, kp, user, wc, &fakeAWSResolver{}, 0, "wincred(MyApp/DBPassword)")
 	if err != nil || got != "dbpass" {
 		t.Fatalf("wincred default: got %q, err %v", got, err)
 	}
 
 	// explicit password field
-	got, err = parseAndResolve(ctx, kp, user, wc, 0, "wincred(MyApp/DBPassword|password)")
+	got, err = parseAndResolve(ctx, kp, user, wc, &fakeAWSResolver{}, 0, "wincred(MyApp/DBPassword|password)")
 	if err != nil || got != "dbpass" {
 		t.Fatalf("wincred password: got %q, err %v", got, err)
 	}
 
 	// username field
-	got, err = parseAndResolve(ctx, kp, user, wc, 0, "wincred(MyApp/DBPassword|username)")
+	got, err = parseAndResolve(ctx, kp, user, wc, &fakeAWSResolver{}, 0, "wincred(MyApp/DBPassword|username)")
 	if err != nil || got != "dbuser" {
 		t.Fatalf("wincred username: got %q, err %v", got, err)
 	}
 
 	// empty target
-	if _, err := parseAndResolve(ctx, kp, user, wc, 0, "wincred()"); err == nil {
+	if _, err := parseAndResolve(ctx, kp, user, wc, &fakeAWSResolver{}, 0, "wincred()"); err == nil {
 		t.Fatal("expected error for empty wincred target")
+	}
+}
+
+func TestParseAndResolve_AWS(t *testing.T) {
+	ctx := context.Background()
+	kp := &fakeKPResolver{}
+	user := &fakeUserResolver{}
+	wc := &fakeWincredResolver{}
+	awsr := &fakeAWSResolver{
+		secrets: map[string]string{
+			"sm:MyApp/DB|":         `{"username":"dbuser","password":"dbpass"}`,
+			"sm:MyApp/Token|":      "rawtoken",
+			"sm:MyApp/DB|username": "dbuser",
+			"sm:MyApp/DB|password": "dbpass",
+		},
+		parameters: map[string]string{
+			"ps:/myapp/prod/api-key|": "apikey123",
+			"ps:/myapp/prod/db|host":  "db.prod.internal",
+		},
+	}
+
+	// awssm — raw string secret
+	got, err := parseAndResolve(ctx, kp, user, wc, awsr, 0, "awssm(MyApp/Token)")
+	if err != nil || got != "rawtoken" {
+		t.Fatalf("awssm raw: got %q, err %v", got, err)
+	}
+
+	// awssm — JSON field extraction
+	got, err = parseAndResolve(ctx, kp, user, wc, awsr, 0, "awssm(MyApp/DB|username)")
+	if err != nil || got != "dbuser" {
+		t.Fatalf("awssm json username: got %q, err %v", got, err)
+	}
+
+	got, err = parseAndResolve(ctx, kp, user, wc, awsr, 0, "awssm(MyApp/DB|password)")
+	if err != nil || got != "dbpass" {
+		t.Fatalf("awssm json password: got %q, err %v", got, err)
+	}
+
+	// awsps — parameter value
+	got, err = parseAndResolve(ctx, kp, user, wc, awsr, 0, "awsps(/myapp/prod/api-key)")
+	if err != nil || got != "apikey123" {
+		t.Fatalf("awsps raw: got %q, err %v", got, err)
+	}
+
+	// awsps — JSON field extraction
+	got, err = parseAndResolve(ctx, kp, user, wc, awsr, 0, "awsps(/myapp/prod/db|host)")
+	if err != nil || got != "db.prod.internal" {
+		t.Fatalf("awsps json host: got %q, err %v", got, err)
+	}
+
+	// empty secret id
+	if _, err := parseAndResolve(ctx, kp, user, wc, awsr, 0, "awssm()"); err == nil {
+		t.Fatal("expected error for empty awssm secret id")
+	}
+
+	// empty parameter name
+	if _, err := parseAndResolve(ctx, kp, user, wc, awsr, 0, "awsps()"); err == nil {
+		t.Fatal("expected error for empty awsps parameter name")
 	}
 }
 

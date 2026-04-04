@@ -362,7 +362,7 @@
 <!-- Hero -->
 <section class="hero">
   <div>
-    <div class="hero-badge">Open Source &middot; Go &middot; KeePass &middot; Windows Credential Manager &middot; dotenv</div>
+    <div class="hero-badge">Open Source &middot; Go &middot; KeePass &middot; AWS &middot; Windows Credential Manager &middot; dotenv</div>
     <h1>Keep secrets out of<br><span>your .env files.</span></h1>
     <p>Plaintext credentials in .env files leak onto hard drives, into backups, and through careless commits. DesktopSecrets replaces them with references your team can safely commit — and resolves them at runtime from your own vault, with no cloud service involved.</p>
     <div class="hero-actions">
@@ -508,6 +508,18 @@
         <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">wincred(MyApp/DBPassword|username)</code></p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon">&#x2601;&#xfe0f;</div>
+        <h3><code>awssm(...)</code> &mdash; AWS Secrets Manager</h3>
+        <p>Retrieve secrets from AWS Secrets Manager. Supports raw string secrets and JSON field extraction. Uses the standard AWS credential chain — env vars, <code>~/.aws</code>, instance roles.</p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">awssm(MyApp/DB|password)</code></p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4c4;</div>
+        <h3><code>awsps(...)</code> &mdash; AWS Parameter Store</h3>
+        <p>Retrieve parameters from AWS Systems Manager Parameter Store. SecureString parameters are always decrypted. Supports JSON field extraction.</p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">awsps(/myapp/prod/api-key)</code></p>
+      </div>
+      <div class="feature-card">
         <div class="feature-icon">&#x1f4ac;</div>
         <h3><code>user(...)</code> &mdash; Interactive Prompt</h3>
         <p>Show a GUI prompt and ask the user to type a secret. Useful for one-off tokens, OTPs, or anything that shouldn't be stored at all.</p>
@@ -535,6 +547,13 @@
 <span class="cmt"># Windows Credential Manager</span>
 <span class="key">DB_PASS</span>=<span class="kw">wincred</span>(<span class="str">MyApp/DBPassword</span>)
 <span class="key">DB_USER</span>=<span class="kw">wincred</span>(<span class="str">MyApp/DBPassword</span>|<span class="str">username</span>)
+
+<span class="cmt"># AWS Secrets Manager</span>
+<span class="key">API_KEY</span>=<span class="kw">awssm</span>(<span class="str">MyApp/ApiKey</span>)
+<span class="key">DB_PASS</span>=<span class="kw">awssm</span>(<span class="str">MyApp/DB</span>|<span class="str">password</span>)
+
+<span class="cmt"># AWS Parameter Store</span>
+<span class="key">DB_HOST</span>=<span class="kw">awsps</span>(<span class="str">/myapp/prod/db</span>|<span class="str">host</span>)
 
 <span class="cmt"># Interactive prompt</span>
 <span class="key">TOKEN</span>=<span class="kw">user</span>(<span class="str">Enter deploy token</span>)</pre>

@@ -121,6 +121,42 @@ SECRET_NAME=user(Title shown in prompt)
 
 ---
 
+## ☁️ AWS Provider
+
+Retrieves secrets from **AWS Secrets Manager** (`awssm`) and **AWS Parameter Store** (`awsps`).
+
+Uses the standard AWS credential chain — no extra configuration needed:
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` env vars
+- `~/.aws/credentials` + `~/.aws/config` (respects `AWS_PROFILE`, `AWS_DEFAULT_REGION`)
+- IAM instance roles, ECS task roles, Web Identity tokens
+
+Resolved values are cached in-memory for the configured TTL (same as KeePass).
+
+### AWS Secrets Manager
+
+```properties
+# Raw string secret
+API_KEY=awssm(MyApp/ApiKey)
+
+# JSON field extraction
+DB_USER=awssm(MyApp/DB|username)
+DB_PASS=awssm(MyApp/DB|password)
+```
+
+### AWS Parameter Store
+
+SecureString parameters are always decrypted automatically.
+
+```properties
+# Parameter value
+API_KEY=awsps(/myapp/prod/api-key)
+
+# JSON field extraction
+DB_HOST=awsps(/myapp/prod/db|host)
+```
+
+---
+
 ## 🪟 Windows Credential Manager Provider *(Windows only)*
 
 Retrieves secrets from the Windows Credential Manager — the built-in credential store accessible via **Control Panel › Credential Manager**.

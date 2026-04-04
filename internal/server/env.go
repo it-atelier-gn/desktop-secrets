@@ -21,7 +21,7 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 	if app == nil {
 		return lines, []error{errors.New("app state is nil")}
 	}
-	if app.KP == nil || app.USER == nil || app.WINCRED == nil {
+	if app.KP == nil || app.USER == nil || app.WINCRED == nil || app.AWS == nil {
 		return lines, []error{errors.New("resolvers not configured")}
 	}
 
@@ -44,12 +44,14 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 
 		// only attempt parse when value clearly starts with a known provider prefix
 		lower := strings.ToLower(val)
-		if !strings.HasPrefix(lower, "keepass(") && !strings.HasPrefix(lower, "user(") && !strings.HasPrefix(lower, "wincred(") {
+		if !strings.HasPrefix(lower, "keepass(") && !strings.HasPrefix(lower, "user(") &&
+			!strings.HasPrefix(lower, "wincred(") && !strings.HasPrefix(lower, "awssm(") &&
+			!strings.HasPrefix(lower, "awsps(") {
 			out = append(out, key+"="+os.ExpandEnv(val))
 			continue
 		}
 
-		resolved, err := parseAndResolve(ctx, app.KP, app.USER, app.WINCRED, app.UnlockTTL.Load(), val)
+		resolved, err := parseAndResolve(ctx, app.KP, app.USER, app.WINCRED, app.AWS, app.UnlockTTL.Load(), val)
 		if err != nil {
 			out = append(out, line) // keep original on error
 			errs = append(errs, fmt.Errorf("key %s: %w", key, err))
@@ -65,7 +67,7 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 // If a nested expression exists inside brackets, the nested expression is
 // resolved first and its raw value is passed to the upper-level KP resolver
 // via the context. No sanitization or mutation of the nested secret is performed.
-func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc WincredResolver, ttl time.Duration, s string) (string, error) {
+func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc WincredResolver, awsr AWSResolver, ttl time.Duration, s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(strings.ToLower(s), "user(") {
 		title, rem, err := parseParenContent(s[len("user"):])
@@ -116,13 +118,13 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 			if !strings.HasPrefix(strings.ToLower(ne), "keepass(") && !strings.HasPrefix(strings.ToLower(ne), "user(") {
 				return "", fmt.Errorf("nested expression must be keepass(...) or user(...): %q", ne)
 			}
-			nestedResolved, err := parseAndResolve(ctx, kp, user, wc, ttl, ne)
+			nestedResolved, err := parseAndResolve(ctx, kp, user, wc, awsr, ttl, ne)
 			if err != nil {
 				return "", fmt.Errorf("resolving nested expression %q: %w", ne, err)
 			}
 			// pass nestedResolved via context to the upper-level KP resolver
 			pass, err := kp.ResolvePassword(ctx, base, title, nestedResolved, ttl, func(expr string) (string, error) {
-				return parseAndResolve(ctx, kp, user, wc, ttl, expr)
+				return parseAndResolve(ctx, kp, user, wc, awsr, ttl, expr)
 			})
 			if err != nil {
 				return "", fmt.Errorf("keepass resolve failed: %w", err)
@@ -132,7 +134,7 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 
 		// no nested expression: call resolver normally
 		pass, err := kp.ResolvePassword(ctx, base, title, "", ttl, func(expr string) (string, error) {
-			return parseAndResolve(ctx, kp, user, wc, ttl, expr)
+			return parseAndResolve(ctx, kp, user, wc, awsr, ttl, expr)
 		})
 		if err != nil {
 			return "", fmt.Errorf("keepass resolve failed: %w", err)
@@ -163,6 +165,44 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 		val, err := wc.Resolve(ctx, target, field)
 		if err != nil {
 			return "", fmt.Errorf("wincred resolve failed: %w", err)
+		}
+		return val, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "awssm(") {
+		content, rem, err := parseParenContent(s[len("awssm"):])
+		if err != nil {
+			return "", fmt.Errorf("parse awssm: %w", err)
+		}
+		if strings.TrimSpace(rem) != "" {
+			return "", fmt.Errorf("unexpected trailing characters after awssm expression")
+		}
+		secretID, field := splitFirstPipe(strings.TrimSpace(content))
+		if secretID == "" {
+			return "", errors.New("empty awssm secret id")
+		}
+		val, err := awsr.ResolveSecret(ctx, secretID, field)
+		if err != nil {
+			return "", fmt.Errorf("awssm resolve failed: %w", err)
+		}
+		return val, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "awsps(") {
+		content, rem, err := parseParenContent(s[len("awsps"):])
+		if err != nil {
+			return "", fmt.Errorf("parse awsps: %w", err)
+		}
+		if strings.TrimSpace(rem) != "" {
+			return "", fmt.Errorf("unexpected trailing characters after awsps expression")
+		}
+		name, field := splitFirstPipe(strings.TrimSpace(content))
+		if name == "" {
+			return "", errors.New("empty awsps parameter name")
+		}
+		val, err := awsr.ResolveParameter(ctx, name, field)
+		if err != nil {
+			return "", fmt.Errorf("awsps resolve failed: %w", err)
 		}
 		return val, nil
 	}
@@ -220,6 +260,15 @@ func indexTopLevelPipe(s string) int {
 		}
 	}
 	return -1
+}
+
+// splitFirstPipe splits s at the first '|', returning the part before and after.
+// If no '|' is present, field is empty.
+func splitFirstPipe(s string) (before, field string) {
+	if idx := strings.Index(s, "|"); idx >= 0 {
+		return strings.TrimSpace(s[:idx]), strings.TrimSpace(s[idx+1:])
+	}
+	return s, ""
 }
 
 // splitVaultAndSingleNested extracts base and at most one nested expression inside brackets.
