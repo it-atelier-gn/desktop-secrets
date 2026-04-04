@@ -233,3 +233,28 @@ Linux:
 go build -o tplenv ./cmd/tplenv
 go build -o getsec ./cmd/getsec
 ```
+
+### Usage as library
+```
+go get github.com/it-atelier-gn/desktop-secrets
+```
+
+```go
+import (
+  "os"
+  desktopsecrets "github.com/it-atelier-gn/desktop-secrets"
+)
+
+func main() {
+  // Required: allows this binary to be re-launched as the secrets daemon.
+  if desktopsecrets.Init() {
+    os.Exit(0)
+  }
+
+  secret, err := desktopsecrets.ResolveSecret("user(DB Password)")
+  if err != nil {
+    panic(err)
+  }
+  println(secret)
+}
+```

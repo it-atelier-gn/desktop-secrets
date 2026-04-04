@@ -2,15 +2,16 @@ package server
 
 import (
 	"context"
-	"desktopsecrets/internal/config"
-	"desktopsecrets/internal/shm"
-	"desktopsecrets/internal/utils"
 	"encoding/json"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/config"
+	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
 	"fyne.io/fyne/v2/app"
 )

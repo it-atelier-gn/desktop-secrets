@@ -2,14 +2,15 @@ package server
 
 import (
 	"context"
-	"desktopsecrets/assets"
-	"desktopsecrets/internal/static"
-	"desktopsecrets/internal/version"
 	_ "embed"
 	"fmt"
 	"log"
 	"net/url"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/assets"
+	"github.com/it-atelier-gn/desktop-secrets/internal/static"
+	"github.com/it-atelier-gn/desktop-secrets/internal/version"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"

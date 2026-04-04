@@ -1,9 +1,10 @@
 package client
 
 import (
-	"desktopsecrets/internal/shm"
 	"encoding/json"
 	"fmt"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 )
 
 func readStateFromShm() (*shm.DaemonState, error) {
