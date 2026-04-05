@@ -5,16 +5,18 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/it-atelier-gn/desktop-secrets)
 
-DesktopSecrets is a lightweight, secure utility that centralizes secret management for developers and power users on the desktop. It integrates with KeePass and local user-provided secrets to make retrieving credentials simple, scriptable, and safe, while minimizing repeated password prompts through configurable caching. Designed for workflows that require environment templating and command-line automation, DesktopSecrets helps you keep sensitive data out of source files and streamline local development and deployment tasks.
+DesktopSecrets is a lightweight, secure utility that centralizes secret management for developers and power users on the desktop. It integrates with KeePass vaults, AWS Secrets Manager, AWS Parameter Store, Windows Credential Manager, and local user-provided prompts to make retrieving credentials simple, scriptable, and safe, while minimizing repeated password prompts through configurable caching. Designed for workflows that require environment templating and command-line automation, DesktopSecrets helps you keep sensitive data out of source files and streamline local development and deployment tasks.
 
 ---
 
 ## ✨ Features
 
 - 🔑 **KeePass Integration** – Retrieve secrets from KeePass vaults using flexible path and wildcard matching.  
+- ☁️ **AWS Integration** – Pull secrets from AWS Secrets Manager and AWS Parameter Store with JSON field extraction.  
+- 🪟 **Windows Credential Manager** – Access credentials stored in the built-in Windows vault *(Windows only)*.  
 - 🧩 **Secret References** – A unified syntax for referencing secrets from any provider.  
 - 🔁 **Recursive Aliases** – Define reusable secret references.  
-- 💾 **Smart Caching** – Unlocked vaults stay accessible for a configurable duration.  
+- 💾 **Smart Caching** – Unlocked vaults and resolved secrets stay accessible for a configurable duration.  
 - ⚙️ **Easy Configuration** – GUI settings menu in the taskbar icon and simple YAML files.
 
 ---
@@ -26,6 +28,9 @@ Examples:
 
 ```
 keepass(C:\Vaults\cloud.kdbx|/AWS/Prod/api-key)
+awssm(MyApp/DB|password)
+awsps(/myapp/prod/api-key)
+wincred(MyApp/DBPassword)
 user(Enter API key)
 ```
 

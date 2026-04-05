@@ -49,7 +49,7 @@ jobs:
 
       - uses: actions/setup-go@v4
         with:
-          go-version: '1.25'
+          go-version: '1.26'
 
       - name: Extract version from tag
         id: version
@@ -77,7 +77,7 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -ldflags "-X desktopsecrets/internal/version.Version=${{ steps.version.outputs.version }} -X desktopsecrets/internal/version.Revision=${{ github.sha }}" -o ${{ matrix.output }} ${{ matrix.package }}
+          go build -ldflags "-X github.com/it-atelier-gn/desktop-secrets/internal/version.Version=${{ steps.version.outputs.version }} -X github.com/it-atelier-gn/desktop-secrets/internal/version.Revision=${{ github.sha }}" -o ${{ matrix.output }} ${{ matrix.package }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
