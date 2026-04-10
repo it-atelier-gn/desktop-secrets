@@ -254,7 +254,7 @@ Chaining works with all lookup modes, including wildcards and aliases.
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Settings are accessible via the taskbar icon.
 
@@ -272,7 +272,7 @@ Settings are accessible via the taskbar icon.
 
 ---
 
-## 🛠️ Build
+## Build
 
 ### Prerequisites
 
@@ -318,3 +318,6 @@ func main() {
   println(secret)
 }
 ```
+
+# License
+MIT © 2026 Georg Nelles
