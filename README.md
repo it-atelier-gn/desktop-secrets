@@ -1,29 +1,18 @@
-# 🔐 DesktopSecrets
+# DesktopSecrets
 
 ![CI/CD Status](https://img.shields.io/github/actions/workflow/status/it-atelier-gn/desktop-secrets/ci.yml)
 ![Go](https://img.shields.io/github/go-mod/go-version/it-atelier-gn/desktop-secrets)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/it-atelier-gn/desktop-secrets)
 
-DesktopSecrets is a lightweight, secure utility that centralizes secret management for developers and power users on the desktop. It integrates with KeePass vaults, AWS Secrets Manager, AWS Parameter Store, Windows Credential Manager, and local user-provided prompts to make retrieving credentials simple, scriptable, and safe, while minimizing repeated password prompts through configurable caching. Designed for workflows that require environment templating and command-line automation, DesktopSecrets helps you keep sensitive data out of source files and streamline local development and deployment tasks.
+DesktopSecrets is a utility that allows you to remove secrets from your filesystem by transforming them to *Secret References*. It integrates with KeePass, AWS Secrets Manager, AWS Parameter Store, Windows Credential Manager, and local user-provided prompts to make retrieving credentials simple, scriptable, and safe, while minimizing repeated password prompts through configurable caching. 
 
 ---
 
-## ✨ Features
+## Secret References
 
-- 🔑 **KeePass Integration** – Retrieve secrets from KeePass vaults using flexible path and wildcard matching.  
-- ☁️ **AWS Integration** – Pull secrets from AWS Secrets Manager and AWS Parameter Store with JSON field extraction.  
-- 🪟 **Windows Credential Manager** – Access credentials stored in the built-in Windows vault *(Windows only)*.  
-- 🧩 **Secret References** – A unified syntax for referencing secrets from any provider.  
-- 🔁 **Recursive Aliases** – Define reusable secret references.  
-- 💾 **Smart Caching** – Unlocked vaults and resolved secrets stay accessible for a configurable duration.  
-- ⚙️ **Easy Configuration** – GUI settings menu in the taskbar icon and simple YAML files.
+A *Secret Reference* is an expression that resolves to a secret value
 
----
-
-## 🔌 Secret References
-
-A *Secret Reference* is an expression that resolves to a secret value.  
 Examples:
 
 ```
@@ -34,11 +23,119 @@ wincred(MyApp/DBPassword)
 user(Enter API key)
 ```
 
-Aliases expand recursively into other secret references.
+---
+
+## Commands
+
+DesktopSecrets provides the following commands.
+
+### *tplenv*
+
+Resolves secrets inside one or more `.env.tpl` files.
+
+Example:
+
+```properties
+DATABASE_URL=postgresql://localhost:5432/mydb
+API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)
+LOG_LEVEL=debug
+```
+
+`tplenv` prints the fully resolved environment.  
+Use `tplenv run` to execute a command with resolved variables injected.
 
 ---
 
-## 🔑 KeePass Provider
+### *getsec*
+
+Resolves a single secret reference passed directly as an argument.
+
+Example:
+
+```sh
+getsec "API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)"
+```
+
+---
+
+## User Provider
+
+Prompts the user to manually enter a secret value.
+
+```
+SECRET_NAME=user(Title shown in prompt)
+```
+
+---
+
+## Windows Credential Manager Provider *(Windows only)*
+
+Retrieves secrets from the Windows Credential Manager — the built-in credential store accessible via **Control Panel › Credential Manager**.
+
+Create entries with `cmdkey` or the GUI:
+
+```powershell
+cmdkey /generic:"MyApp/DBPassword" /user:"myuser" /pass:"mysecret"
+```
+
+### Format
+
+```properties
+SECRET_NAME=wincred(TARGET)              # password field (default)
+SECRET_NAME=wincred(TARGET|password)     # password field (explicit)
+SECRET_NAME=wincred(TARGET|username)     # username field
+```
+
+- **TARGET** — The credential target name used when storing the credential
+- **Field** — `password` (default) or `username`
+
+### Example
+
+```properties
+DB_PASSWORD=wincred(MyApp/DBPassword)
+DB_USER=wincred(MyApp/DBPassword|username)
+```
+
+---
+
+## AWS Provider
+
+Retrieves secrets from **AWS Secrets Manager** (`awssm`) and **AWS Parameter Store** (`awsps`).
+
+Uses the standard AWS credential chain — no extra configuration needed:
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` env vars
+- `~/.aws/credentials` + `~/.aws/config` (respects `AWS_PROFILE`, `AWS_DEFAULT_REGION`)
+- IAM instance roles, ECS task roles, Web Identity tokens
+
+Resolved values are cached in-memory for the configured TTL (same as KeePass).
+
+### AWS Secrets Manager
+
+```properties
+# Raw string secret
+API_KEY=awssm(MyApp/ApiKey)
+
+# JSON field extraction
+DB_USER=awssm(MyApp/DB|username)
+DB_PASS=awssm(MyApp/DB|password)
+```
+
+### AWS Parameter Store
+
+SecureString parameters are always decrypted automatically.
+
+```properties
+# Parameter value
+API_KEY=awsps(/myapp/prod/api-key)
+
+# JSON field extraction
+DB_HOST=awsps(/myapp/prod/db|host)
+```
+
+
+---
+
+## KeePass Provider
 
 The KeePass provider retrieves secrets from `.kdbx` vaults.  
 It supports:
@@ -114,89 +211,10 @@ keepass(vault.kdbx|/AWS/Prod/api-key|customField)
 
 Attribute names are case-sensitive. If omitted, the default attribute is the `Password`.
 
----
 
-## 👤 User Provider
+### Aliases
 
-Prompts the user to manually enter a secret value.
-
-```
-SECRET_NAME=user(Title shown in prompt)
-```
-
----
-
-## ☁️ AWS Provider
-
-Retrieves secrets from **AWS Secrets Manager** (`awssm`) and **AWS Parameter Store** (`awsps`).
-
-Uses the standard AWS credential chain — no extra configuration needed:
-- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` env vars
-- `~/.aws/credentials` + `~/.aws/config` (respects `AWS_PROFILE`, `AWS_DEFAULT_REGION`)
-- IAM instance roles, ECS task roles, Web Identity tokens
-
-Resolved values are cached in-memory for the configured TTL (same as KeePass).
-
-### AWS Secrets Manager
-
-```properties
-# Raw string secret
-API_KEY=awssm(MyApp/ApiKey)
-
-# JSON field extraction
-DB_USER=awssm(MyApp/DB|username)
-DB_PASS=awssm(MyApp/DB|password)
-```
-
-### AWS Parameter Store
-
-SecureString parameters are always decrypted automatically.
-
-```properties
-# Parameter value
-API_KEY=awsps(/myapp/prod/api-key)
-
-# JSON field extraction
-DB_HOST=awsps(/myapp/prod/db|host)
-```
-
----
-
-## 🪟 Windows Credential Manager Provider *(Windows only)*
-
-Retrieves secrets from the Windows Credential Manager — the built-in credential store accessible via **Control Panel › Credential Manager**.
-
-Create entries with `cmdkey` or the GUI:
-
-```powershell
-cmdkey /generic:"MyApp/DBPassword" /user:"myuser" /pass:"mysecret"
-```
-
-### Format
-
-```properties
-SECRET_NAME=wincred(TARGET)              # password field (default)
-SECRET_NAME=wincred(TARGET|password)     # password field (explicit)
-SECRET_NAME=wincred(TARGET|username)     # username field
-```
-
-- **TARGET** — The credential target name used when storing the credential
-- **Field** — `password` (default) or `username`
-
-### Example
-
-```properties
-DB_PASSWORD=wincred(MyApp/DBPassword)
-DB_USER=wincred(MyApp/DBPassword|username)
-```
-
-No master password or TTL needed — access is transparent as long as you are logged into Windows.
-
----
-
-## 🔁 Aliases
-
-Aliases are defined in `aliases.yaml`.
+Aliases for KeePass databases for more flexibility. Aliases are defined in `aliases.yaml` and referenced with `&`.
 
 Example:
 
@@ -216,7 +234,7 @@ CLAUDE_API_KEY=keepass(&personal|Claude Code API key)
 
 ---
 
-## 🔗 Chaining
+### Chaining
 
 KeePass vaults can be unlocked using secrets retrieved from other providers.
 
@@ -233,37 +251,6 @@ This:
 3. Retrieves the final entry
 
 Chaining works with all lookup modes, including wildcards and aliases.
-
----
-
-## 🚀 Commands
-
-### 📄 *tplenv*
-
-Resolves secrets inside one or more `.env.tpl` files.
-
-Example:
-
-```properties
-DATABASE_URL=postgresql://localhost:5432/mydb
-API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)
-LOG_LEVEL=debug
-```
-
-`tplenv` prints the fully resolved environment.  
-Use `tplenv run` to execute a command with resolved variables injected.
-
----
-
-### 🛠️ *getsec*
-
-Resolves a single secret reference passed directly as an argument.
-
-Example:
-
-```sh
-getsec "API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)"
-```
 
 ---
 
