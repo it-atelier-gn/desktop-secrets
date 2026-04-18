@@ -13,7 +13,7 @@ require (
 	github.com/mitchellh/go-ps v1.0.0
 	github.com/spf13/viper v1.21.0
 	github.com/tobischo/gokeepasslib/v3 v3.6.2
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
