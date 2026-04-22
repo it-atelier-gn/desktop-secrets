@@ -21,7 +21,9 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 	if app == nil {
 		return lines, []error{errors.New("app state is nil")}
 	}
-	if app.KP == nil || app.USER == nil || app.WINCRED == nil || app.AWS == nil {
+	if app.KP == nil || app.USER == nil || app.WINCRED == nil || app.AWS == nil ||
+		app.AZKV == nil || app.GCPSM == nil || app.KEYCHAIN == nil ||
+		app.VAULT == nil || app.ONEPASSWORD == nil {
 		return lines, []error{errors.New("resolvers not configured")}
 	}
 
@@ -46,12 +48,14 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 		lower := strings.ToLower(val)
 		if !strings.HasPrefix(lower, "keepass(") && !strings.HasPrefix(lower, "user(") &&
 			!strings.HasPrefix(lower, "wincred(") && !strings.HasPrefix(lower, "awssm(") &&
-			!strings.HasPrefix(lower, "awsps(") {
+			!strings.HasPrefix(lower, "awsps(") && !strings.HasPrefix(lower, "azkv(") &&
+			!strings.HasPrefix(lower, "gcpsm(") && !strings.HasPrefix(lower, "keychain(") &&
+			!strings.HasPrefix(lower, "vault(") && !strings.HasPrefix(lower, "op(") {
 			out = append(out, key+"="+os.ExpandEnv(val))
 			continue
 		}
 
-		resolved, err := parseAndResolve(ctx, app.KP, app.USER, app.WINCRED, app.AWS, app.UnlockTTL.Load(), val)
+		resolved, err := parseAndResolve(ctx, app, app.UnlockTTL.Load(), val)
 		if err != nil {
 			out = append(out, line) // keep original on error
 			errs = append(errs, fmt.Errorf("key %s: %w", key, err))
@@ -67,7 +71,7 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 // If a nested expression exists inside brackets, the nested expression is
 // resolved first and its raw value is passed to the upper-level KP resolver
 // via the context. No sanitization or mutation of the nested secret is performed.
-func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc WincredResolver, awsr AWSResolver, ttl time.Duration, s string) (string, error) {
+func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(strings.ToLower(s), "user(") {
 		title, rem, err := parseParenContent(s[len("user"):])
@@ -81,7 +85,7 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 		if title == "" {
 			return "", errors.New("empty user title")
 		}
-		pass, err := user.ResolvePassword(ctx, title, ttl)
+		pass, err := app.USER.ResolvePassword(ctx, title, ttl)
 		if err != nil {
 			return "", fmt.Errorf("user resolve failed: %w", err)
 		}
@@ -118,13 +122,13 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 			if !strings.HasPrefix(strings.ToLower(ne), "keepass(") && !strings.HasPrefix(strings.ToLower(ne), "user(") {
 				return "", fmt.Errorf("nested expression must be keepass(...) or user(...): %q", ne)
 			}
-			nestedResolved, err := parseAndResolve(ctx, kp, user, wc, awsr, ttl, ne)
+			nestedResolved, err := parseAndResolve(ctx, app, ttl, ne)
 			if err != nil {
 				return "", fmt.Errorf("resolving nested expression %q: %w", ne, err)
 			}
 			// pass nestedResolved via context to the upper-level KP resolver
-			pass, err := kp.ResolvePassword(ctx, base, title, nestedResolved, ttl, func(expr string) (string, error) {
-				return parseAndResolve(ctx, kp, user, wc, awsr, ttl, expr)
+			pass, err := app.KP.ResolvePassword(ctx, base, title, nestedResolved, ttl, func(expr string) (string, error) {
+				return parseAndResolve(ctx, app, ttl, expr)
 			})
 			if err != nil {
 				return "", fmt.Errorf("keepass resolve failed: %w", err)
@@ -133,8 +137,8 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 		}
 
 		// no nested expression: call resolver normally
-		pass, err := kp.ResolvePassword(ctx, base, title, "", ttl, func(expr string) (string, error) {
-			return parseAndResolve(ctx, kp, user, wc, awsr, ttl, expr)
+		pass, err := app.KP.ResolvePassword(ctx, base, title, "", ttl, func(expr string) (string, error) {
+			return parseAndResolve(ctx, app, ttl, expr)
 		})
 		if err != nil {
 			return "", fmt.Errorf("keepass resolve failed: %w", err)
@@ -162,7 +166,7 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 		if target == "" {
 			return "", errors.New("empty wincred target")
 		}
-		val, err := wc.Resolve(ctx, target, field)
+		val, err := app.WINCRED.Resolve(ctx, target, field)
 		if err != nil {
 			return "", fmt.Errorf("wincred resolve failed: %w", err)
 		}
@@ -181,7 +185,7 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 		if secretID == "" {
 			return "", errors.New("empty awssm secret id")
 		}
-		val, err := awsr.ResolveSecret(ctx, secretID, field)
+		val, err := app.AWS.ResolveSecret(ctx, secretID, field)
 		if err != nil {
 			return "", fmt.Errorf("awssm resolve failed: %w", err)
 		}
@@ -200,9 +204,104 @@ func parseAndResolve(ctx context.Context, kp KPResolver, user UserResolver, wc W
 		if name == "" {
 			return "", errors.New("empty awsps parameter name")
 		}
-		val, err := awsr.ResolveParameter(ctx, name, field)
+		val, err := app.AWS.ResolveParameter(ctx, name, field)
 		if err != nil {
 			return "", fmt.Errorf("awsps resolve failed: %w", err)
+		}
+		return val, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "azkv(") {
+		content, rem, err := parseParenContent(s[len("azkv"):])
+		if err != nil {
+			return "", fmt.Errorf("parse azkv: %w", err)
+		}
+		if strings.TrimSpace(rem) != "" {
+			return "", fmt.Errorf("unexpected trailing characters after azkv expression")
+		}
+		ref, field := splitFirstPipe(strings.TrimSpace(content))
+		if ref == "" {
+			return "", errors.New("empty azkv reference")
+		}
+		val, err := app.AZKV.ResolveSecret(ctx, ref, field)
+		if err != nil {
+			return "", fmt.Errorf("azkv resolve failed: %w", err)
+		}
+		return val, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "gcpsm(") {
+		content, rem, err := parseParenContent(s[len("gcpsm"):])
+		if err != nil {
+			return "", fmt.Errorf("parse gcpsm: %w", err)
+		}
+		if strings.TrimSpace(rem) != "" {
+			return "", fmt.Errorf("unexpected trailing characters after gcpsm expression")
+		}
+		ref, field := splitFirstPipe(strings.TrimSpace(content))
+		if ref == "" {
+			return "", errors.New("empty gcpsm reference")
+		}
+		val, err := app.GCPSM.ResolveSecret(ctx, ref, field)
+		if err != nil {
+			return "", fmt.Errorf("gcpsm resolve failed: %w", err)
+		}
+		return val, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "keychain(") {
+		content, rem, err := parseParenContent(s[len("keychain"):])
+		if err != nil {
+			return "", fmt.Errorf("parse keychain: %w", err)
+		}
+		if strings.TrimSpace(rem) != "" {
+			return "", fmt.Errorf("unexpected trailing characters after keychain expression")
+		}
+		service, account := splitFirstPipe(strings.TrimSpace(content))
+		if service == "" {
+			return "", errors.New("empty keychain service")
+		}
+		val, err := app.KEYCHAIN.Resolve(ctx, service, account)
+		if err != nil {
+			return "", fmt.Errorf("keychain resolve failed: %w", err)
+		}
+		return val, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "vault(") {
+		content, rem, err := parseParenContent(s[len("vault"):])
+		if err != nil {
+			return "", fmt.Errorf("parse vault: %w", err)
+		}
+		if strings.TrimSpace(rem) != "" {
+			return "", fmt.Errorf("unexpected trailing characters after vault expression")
+		}
+		path, field := splitFirstPipe(strings.TrimSpace(content))
+		if path == "" {
+			return "", errors.New("empty vault path")
+		}
+		val, err := app.VAULT.ResolveSecret(ctx, path, field)
+		if err != nil {
+			return "", fmt.Errorf("vault resolve failed: %w", err)
+		}
+		return val, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "op(") {
+		content, rem, err := parseParenContent(s[len("op"):])
+		if err != nil {
+			return "", fmt.Errorf("parse op: %w", err)
+		}
+		if strings.TrimSpace(rem) != "" {
+			return "", fmt.Errorf("unexpected trailing characters after op expression")
+		}
+		ref, field := splitFirstPipe(strings.TrimSpace(content))
+		if ref == "" {
+			return "", errors.New("empty op reference")
+		}
+		val, err := app.ONEPASSWORD.ResolveSecret(ctx, ref, field)
+		if err != nil {
+			return "", fmt.Errorf("op resolve failed: %w", err)
 		}
 		return val, nil
 	}

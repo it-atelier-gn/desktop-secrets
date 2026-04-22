@@ -5,9 +5,14 @@ import (
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/aws"
+	"github.com/it-atelier-gn/desktop-secrets/internal/azkv"
+	"github.com/it-atelier-gn/desktop-secrets/internal/gcpsm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
+	"github.com/it-atelier-gn/desktop-secrets/internal/keychain"
+	"github.com/it-atelier-gn/desktop-secrets/internal/onepassword"
 	"github.com/it-atelier-gn/desktop-secrets/internal/user"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
+	"github.com/it-atelier-gn/desktop-secrets/internal/vault"
 	"github.com/it-atelier-gn/desktop-secrets/internal/wincred"
 
 	"github.com/spf13/viper"
@@ -34,13 +39,38 @@ type AWSResolver interface {
 	ResolveParameter(ctx context.Context, name, field string) (string, error)
 }
 
+type AzureResolver interface {
+	ResolveSecret(ctx context.Context, ref, field string) (string, error)
+}
+
+type GCPResolver interface {
+	ResolveSecret(ctx context.Context, ref, field string) (string, error)
+}
+
+type KeychainResolver interface {
+	Resolve(ctx context.Context, service, account string) (string, error)
+}
+
+type VaultResolver interface {
+	ResolveSecret(ctx context.Context, path, field string) (string, error)
+}
+
+type OnePasswordResolver interface {
+	ResolveSecret(ctx context.Context, ref, field string) (string, error)
+}
+
 type AppState struct {
-	KP         KPResolver
-	USER       UserResolver
-	WINCRED    WincredResolver
-	AWS        AWSResolver
-	UnlockTTL  utils.AtomicDuration
-	ShouldExit utils.AtomicBool
+	KP          KPResolver
+	USER        UserResolver
+	WINCRED     WincredResolver
+	AWS         AWSResolver
+	AZKV        AzureResolver
+	GCPSM       GCPResolver
+	KEYCHAIN    KeychainResolver
+	VAULT       VaultResolver
+	ONEPASSWORD OnePasswordResolver
+	UnlockTTL   utils.AtomicDuration
+	ShouldExit  utils.AtomicBool
 
 	Server *DaemonServer
 }
@@ -48,11 +78,16 @@ type AppState struct {
 func NewAppState() *AppState {
 	ttl := time.Duration(viper.GetInt("ttl")) * time.Minute
 	a := &AppState{
-		KP:        keepass.NewKPManager(),
-		USER:      user.NewUserManager(),
-		WINCRED:   wincred.NewManager(),
-		AWS:       aws.NewManager(ttl),
-		UnlockTTL: utils.AtomicDuration{},
+		KP:          keepass.NewKPManager(),
+		USER:        user.NewUserManager(),
+		WINCRED:     wincred.NewManager(),
+		AWS:         aws.NewManager(ttl),
+		AZKV:        azkv.NewManager(ttl),
+		GCPSM:       gcpsm.NewManager(ttl),
+		KEYCHAIN:    keychain.NewManager(),
+		VAULT:       vault.NewManager(ttl),
+		ONEPASSWORD: onepassword.NewManager(ttl),
+		UnlockTTL:   utils.AtomicDuration{},
 	}
 	a.UnlockTTL.Store(ttl)
 
