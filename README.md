@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/it-atelier-gn/desktop-secrets)
 
-DesktopSecrets is a utility that allows you to remove secrets from your filesystem by transforming them to *Secret References*. It integrates with KeePass, AWS Secrets Manager, AWS Parameter Store, Windows Credential Manager, and local user-provided prompts to make retrieving credentials simple, scriptable, and safe, while minimizing repeated password prompts through configurable caching. 
+DesktopSecrets is a utility that allows you to remove secrets from your filesystem by transforming them to *Secret References*. It integrates with KeePass, AWS Secrets Manager, AWS Parameter Store, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, 1Password, Windows Credential Manager, macOS Keychain, and local user-provided prompts to make retrieving credentials simple, scriptable, and safe, while minimizing repeated password prompts through configurable caching. 
 
 ---
 
@@ -19,7 +19,12 @@ Examples:
 keepass(C:\Vaults\cloud.kdbx|/AWS/Prod/api-key)
 awssm(MyApp/DB|password)
 awsps(/myapp/prod/api-key)
+azkv(mykv/dbpass)
+gcpsm(my-project/api-key)
+vault(secret/data/myapp|password)
+op(Personal/GitHub|token)
 wincred(MyApp/DBPassword)
+keychain(git.example.com|alice)
 user(Enter API key)
 ```
 
@@ -132,6 +137,144 @@ API_KEY=awsps(/myapp/prod/api-key)
 DB_HOST=awsps(/myapp/prod/db|host)
 ```
 
+
+---
+
+## Azure Key Vault Provider
+
+Retrieves secrets from **Azure Key Vault** (`azkv`).
+
+Uses `DefaultAzureCredential` — tries in order: env vars, workload identity, managed identity, Azure CLI (`az login`), Azure PowerShell, Azure Developer CLI. No extra config needed if any of those are set up.
+
+### Format
+
+```properties
+SECRET_NAME=azkv(VAULT/NAME)                    # raw secret value
+SECRET_NAME=azkv(VAULT/NAME|field)              # JSON field extraction
+SECRET_NAME=azkv(https://VAULT.vault.azure.net/NAME)  # full URL form
+```
+
+- **VAULT** — Key Vault name (e.g. `mykv`) or full URL
+- **NAME** — secret name
+- **field** — optional JSON field if the secret value is JSON
+
+### Example
+
+```properties
+DB_PASSWORD=azkv(mykv/db-password)
+DB_USER=azkv(mykv/db-credentials|username)
+```
+
+---
+
+## GCP Secret Manager Provider
+
+Retrieves secrets from **Google Cloud Secret Manager** (`gcpsm`).
+
+Uses Application Default Credentials — `GOOGLE_APPLICATION_CREDENTIALS` env var, `gcloud auth application-default login`, attached service account on GCE/GKE/Cloud Run, etc.
+
+### Format
+
+```properties
+SECRET_NAME=gcpsm(PROJECT/NAME)                 # latest version
+SECRET_NAME=gcpsm(PROJECT/NAME/VERSION)         # specific version
+SECRET_NAME=gcpsm(PROJECT/NAME|field)           # JSON field extraction
+SECRET_NAME=gcpsm(projects/P/secrets/N/versions/V)  # fully-qualified form
+```
+
+- **PROJECT** — GCP project ID
+- **NAME** — secret name
+- **VERSION** — numeric version or `latest` (default)
+- **field** — optional JSON field if the secret payload is JSON
+
+### Example
+
+```properties
+API_KEY=gcpsm(my-project/api-key)
+DB_PASS=gcpsm(my-project/db-credentials|password)
+```
+
+---
+
+## macOS Keychain Provider *(macOS only)*
+
+Retrieves generic passwords from the **macOS login keychain** via the `security` CLI.
+
+Create entries with the `security` command or Keychain Access.app:
+
+```sh
+security add-generic-password -s git.example.com -a alice -w 'the-token'
+```
+
+### Format
+
+```properties
+SECRET_NAME=keychain(SERVICE)            # any account matching service
+SECRET_NAME=keychain(SERVICE|ACCOUNT)    # specific account
+```
+
+### Example
+
+```properties
+GIT_TOKEN=keychain(git.example.com|alice)
+AWS_KEY=keychain(aws-prod)
+```
+
+---
+
+## HashiCorp Vault Provider
+
+Retrieves secrets from **HashiCorp Vault** (`vault`).
+
+Uses the standard Vault client config — no extra setup needed:
+- `VAULT_ADDR` — Vault server URL
+- `VAULT_TOKEN` — auth token (or file token, AppRole, etc. via standard Vault env vars)
+- `VAULT_NAMESPACE` — namespace for Vault Enterprise
+
+### Format
+
+```properties
+SECRET_NAME=vault(PATH)                 # returns raw JSON or single-key value
+SECRET_NAME=vault(PATH|field)           # extracts a named field
+```
+
+- **PATH** — full Vault path. For KV v2, include `data/` (e.g. `secret/data/myapp`)
+- **field** — optional. If omitted and the secret has a single key, its value is returned; otherwise the full JSON object is returned.
+
+### Example
+
+```properties
+# KV v2 mount at 'secret/'
+DB_PASSWORD=vault(secret/data/myapp|password)
+API_TOKEN=vault(secret/data/myapp|api_token)
+
+# KV v1 mount
+LEGACY_KEY=vault(kv/legacy/key)
+```
+
+---
+
+## 1Password Provider
+
+Retrieves secrets from **1Password** via the `op` CLI (`op`).
+
+Requires the [1Password CLI](https://developer.1password.com/docs/cli/) installed and signed in (`op signin`).
+
+### Format
+
+```properties
+SECRET_NAME=op(VAULT/ITEM)              # default `password` field
+SECRET_NAME=op(VAULT/ITEM|field)        # named field (1Password-native, not JSON)
+```
+
+Under the hood this invokes `op read op://VAULT/ITEM/field`.
+
+### Example
+
+```properties
+GITHUB_TOKEN=op(Personal/GitHub|token)
+DB_PASS=op(Work/Production-DB|password)
+```
 
 ---
 
