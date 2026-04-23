@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DesktopSecrets — Clean .env Secret Handling</title>
-  <meta name="description" content="Keep secrets out of your .env files. Use .env templates you can commit to git, share with your team, and resolve at runtime from KeePass — no cloud, no fees, no repeated prompts." />
+  <meta name="description" content="Keep secrets out of your .env files. Commit .env templates to git and resolve them at runtime from KeePass, AWS, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, 1Password, macOS Keychain, or Windows Credential Manager." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -362,9 +362,9 @@
 <!-- Hero -->
 <section class="hero">
   <div>
-    <div class="hero-badge">Open Source &middot; Go &middot; KeePass &middot; AWS &middot; Windows Credential Manager &middot; dotenv</div>
+    <div class="hero-badge">Open Source &middot; Go &middot; KeePass &middot; AWS &middot; Azure &middot; GCP &middot; Vault &middot; 1Password &middot; Keychain &middot; WinCred &middot; dotenv</div>
     <h1>Keep secrets out of<br><span>your .env files.</span></h1>
-    <p>Plaintext credentials in .env files leak onto hard drives, into backups, and through careless commits. DesktopSecrets replaces them with references your team can safely commit — and resolves them at runtime from your own vault, with no cloud service involved.</p>
+    <p>Plaintext credentials in .env files leak onto hard drives, into backups, and through careless commits. DesktopSecrets replaces them with references your team can safely commit — and resolves them at runtime from whichever vault you trust: local (KeePass, Keychain, WinCred) or cloud (AWS, Azure, GCP, HashiCorp Vault, 1Password).</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">
         &darr; Install
@@ -520,6 +520,36 @@
         <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">awsps(/myapp/prod/api-key)</code></p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon">&#x1f5dd;&#xfe0f;</div>
+        <h3><code>azkv(...)</code> &mdash; Azure Key Vault</h3>
+        <p>Retrieve secrets from Azure Key Vault. Uses <code>DefaultAzureCredential</code> — env vars, Azure CLI login, or managed identity. Optional JSON field extraction.</p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">azkv(my-vault/db-password)</code></p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x2601;&#xfe0f;</div>
+        <h3><code>gcpsm(...)</code> &mdash; GCP Secret Manager</h3>
+        <p>Retrieve secrets from Google Cloud Secret Manager. Uses Application Default Credentials (<code>gcloud auth</code> or <code>GOOGLE_APPLICATION_CREDENTIALS</code>). Version defaults to <code>latest</code>.</p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">gcpsm(my-project/api-key)</code></p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f3db;&#xfe0f;</div>
+        <h3><code>vault(...)</code> &mdash; HashiCorp Vault</h3>
+        <p>Retrieve secrets from HashiCorp Vault KV v2. Auth via <code>VAULT_TOKEN</code> or configured AppRole. Supports Vault Enterprise namespaces.</p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">vault(secret/data/myapp|password)</code></p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f511;</div>
+        <h3><code>op(...)</code> &mdash; 1Password</h3>
+        <p>Retrieve items from 1Password via the <code>op</code> CLI. Requires <code>op signin</code> on the local machine. Lightweight — no extra Go dependencies.</p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">op(Private/GitHub Token|credential)</code></p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f34e;</div>
+        <h3><code>keychain(...)</code> &mdash; macOS Keychain</h3>
+        <p>Retrieve passwords from the built-in macOS Keychain. No master password, transparent once logged in. Symmetric with <code>wincred</code>. <em>macOS only.</em></p>
+        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">keychain(MyApp|alice)</code></p>
+      </div>
+      <div class="feature-card">
         <div class="feature-icon">&#x1f4ac;</div>
         <h3><code>user(...)</code> &mdash; Interactive Prompt</h3>
         <p>Show a GUI prompt and ask the user to type a secret. Useful for one-off tokens, OTPs, or anything that shouldn't be stored at all.</p>
@@ -554,6 +584,21 @@
 
 <span class="cmt"># AWS Parameter Store</span>
 <span class="key">DB_HOST</span>=<span class="kw">awsps</span>(<span class="str">/myapp/prod/db</span>|<span class="str">host</span>)
+
+<span class="cmt"># Azure Key Vault</span>
+<span class="key">API_KEY</span>=<span class="kw">azkv</span>(<span class="str">my-vault/api-key</span>)
+
+<span class="cmt"># GCP Secret Manager</span>
+<span class="key">DB_PASS</span>=<span class="kw">gcpsm</span>(<span class="str">my-project/db-pass</span>)
+
+<span class="cmt"># HashiCorp Vault (KV v2)</span>
+<span class="key">TOKEN</span>=<span class="kw">vault</span>(<span class="str">secret/data/myapp</span>|<span class="str">token</span>)
+
+<span class="cmt"># 1Password CLI</span>
+<span class="key">GH_TOKEN</span>=<span class="kw">op</span>(<span class="str">Private/GitHub Token</span>|<span class="str">credential</span>)
+
+<span class="cmt"># macOS Keychain</span>
+<span class="key">DB_PASS</span>=<span class="kw">keychain</span>(<span class="str">MyApp</span>|<span class="str">alice</span>)
 
 <span class="cmt"># Interactive prompt</span>
 <span class="key">TOKEN</span>=<span class="kw">user</span>(<span class="str">Enter deploy token</span>)</pre>
