@@ -6,13 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 )
 
 type passwordEntry struct {
-	expires  time.Time
-	password string
+	expires time.Time
+	sealed  *memprotect.Sealed
 }
 
 type UserManager struct {
@@ -32,12 +33,13 @@ func (m *UserManager) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 }
 
 func (m *UserManager) ResolvePassword(_ context.Context, title string, ttl time.Duration) (string, error) {
-	m.mu.Lock()
+	m.mu.RLock()
 	if v, exists := m.password[title]; exists && time.Now().Before(v.expires) {
-		m.mu.Unlock()
-		return v.password, nil
+		sealed := v.sealed
+		m.mu.RUnlock()
+		return sealed.OpenString()
 	}
-	m.mu.Unlock()
+	m.mu.RUnlock()
 
 	userOpts := &prompt.UserOptions{
 		CurrentTTL: int(m.unlockTTL.Load().Minutes()),
@@ -52,14 +54,33 @@ func (m *UserManager) ResolvePassword(_ context.Context, title string, ttl time.
 		return "", errors.New("empty password")
 	}
 
+	sealed, err := memprotect.SealString(result.Password)
+	if err != nil {
+		return "", err
+	}
+
+	entryTTL := time.Duration(result.TTLMinutes) * time.Minute
 	p := &passwordEntry{
-		expires:  time.Now().Add(time.Duration(result.TTLMinutes) * time.Minute),
-		password: result.Password,
+		expires: time.Now().Add(entryTTL),
+		sealed:  sealed,
 	}
 
 	m.mu.Lock()
+	if old, ok := m.password[title]; ok {
+		old.sealed.Destroy()
+	}
 	m.password[title] = p
 	m.mu.Unlock()
 
-	return p.password, nil
+	go func(title string, p *passwordEntry, d time.Duration) {
+		<-time.After(d)
+		m.mu.Lock()
+		if cur, ok := m.password[title]; ok && cur == p {
+			delete(m.password, title)
+		}
+		m.mu.Unlock()
+		p.sealed.Destroy()
+	}(title, p, entryTTL)
+
+	return result.Password, nil
 }

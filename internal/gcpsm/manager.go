@@ -10,10 +10,12 @@ import (
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 )
 
 type cacheEntry struct {
-	value   string
+	sealed  *memprotect.Sealed
 	expires time.Time
 }
 
@@ -85,8 +87,8 @@ func (m *Manager) ResolveSecret(ctx context.Context, ref, field string) (string,
 		return "", err
 	}
 
-	if e, ok := m.cache[resource]; ok && time.Now().Before(e.expires) {
-		return extractField(e.value, field)
+	if raw, ok := m.readCache(resource); ok {
+		return extractField(raw, field)
 	}
 
 	if err := m.init(ctx); err != nil {
@@ -103,8 +105,47 @@ func (m *Manager) ResolveSecret(ctx context.Context, ref, field string) (string,
 		raw = string(resp.Payload.Data)
 	}
 
-	m.cache[resource] = cacheEntry{value: raw, expires: time.Now().Add(m.ttl)}
+	m.storeCache(resource, raw)
 	return extractField(raw, field)
+}
+
+func (m *Manager) readCache(key string) (string, bool) {
+	e, ok := m.cache[key]
+	if !ok {
+		return "", false
+	}
+	if !time.Now().Before(e.expires) {
+		e.sealed.Destroy()
+		delete(m.cache, key)
+		return "", false
+	}
+	pt, err := e.sealed.OpenString()
+	if err != nil {
+		return "", false
+	}
+	return pt, true
+}
+
+func (m *Manager) storeCache(key, raw string) {
+	sealed, err := memprotect.SealString(raw)
+	if err != nil {
+		return
+	}
+	if old, ok := m.cache[key]; ok {
+		old.sealed.Destroy()
+	}
+	entry := cacheEntry{sealed: sealed, expires: time.Now().Add(m.ttl)}
+	m.cache[key] = entry
+
+	go func(k string, e cacheEntry, d time.Duration) {
+		<-time.After(d)
+		m.mu.Lock()
+		if cur, ok := m.cache[k]; ok && cur.sealed == e.sealed {
+			delete(m.cache, k)
+		}
+		m.mu.Unlock()
+		e.sealed.Destroy()
+	}(key, entry, m.ttl)
 }
 
 // buildResourceName converts shorthand references into the fully-qualified

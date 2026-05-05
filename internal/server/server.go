@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"net"
@@ -56,7 +57,8 @@ func NewDaemonServer(app *AppState, token string) (*DaemonServer, error) {
 
 func (ds *DaemonServer) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-DesktopSecrets-Token") != ds.token {
+		got := r.Header.Get("X-DesktopSecrets-Token")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(ds.token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

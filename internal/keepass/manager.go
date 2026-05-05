@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
@@ -47,10 +48,25 @@ type aliasMap map[string]alias
 type keyfileMap map[string]string
 
 type unlockedVault struct {
-	db       *gokeepasslib.Database
-	expires  time.Time
-	mu       sync.RWMutex
-	filename string
+	db          *gokeepasslib.Database
+	sealedAttrs map[string]map[string]*memprotect.Sealed
+	expires     time.Time
+	mu          sync.RWMutex
+	filename    string
+}
+
+// destroy releases the decrypted database and zeroes all sealed entry
+// values. Safe to call multiple times.
+func (u *unlockedVault) destroy() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for _, attrs := range u.sealedAttrs {
+		for _, s := range attrs {
+			s.Destroy()
+		}
+	}
+	u.sealedAttrs = nil
+	u.db = nil
 }
 
 type KPManager struct {
@@ -203,7 +219,13 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, entry string, ma
 
 	entry, attr := splitAttribute(entry, "Password")
 
-	pwd, err := findAttribute(vlt.db, entry, attr)
+	vlt.mu.RLock()
+	defer vlt.mu.RUnlock()
+	if vlt.db == nil {
+		return "", errors.New("vault expired")
+	}
+
+	pwd, err := findAttribute(vlt.db, vlt.sealedAttrs, entry, attr)
 	if err != nil {
 		return "", err
 	}
@@ -344,28 +366,94 @@ func (m *KPManager) openVault(path string, ttl time.Duration, creds *gokeepassli
 
 	db.UnlockProtectedEntries()
 
-	u := &unlockedVault{
-		db:       db,
-		expires:  time.Now().Add(ttl),
-		filename: path,
+	sealed, err := sealProtectedEntries(db)
+	if err != nil {
+		return nil, fmt.Errorf("seal entries: %w", err)
 	}
 
-	// schedule expiry
+	u := &unlockedVault{
+		db:          db,
+		sealedAttrs: sealed,
+		expires:     time.Now().Add(ttl),
+		filename:    path,
+	}
+
 	go func(key string, u *unlockedVault, ttl time.Duration) {
-		timer := time.NewTimer(ttl)
-		<-timer.C
-		u.mu.Lock()
-		if u.db != nil {
-			u.db.LockProtectedEntries()
-			u.db = nil
-		}
-		u.mu.Unlock()
+		<-time.After(ttl)
 		m.mu.Lock()
 		delete(m.vaults, key)
 		m.mu.Unlock()
+		u.destroy()
 	}(filepath.Base(path), u, ttl)
 
 	return u, nil
+}
+
+// sealProtectedEntries walks the database and replaces every protected
+// attribute's plaintext with an encrypted Sealed value. The original
+// plaintext string is dropped (Value.Content cleared) so it becomes
+// eligible for GC; only the Sealed copy remains live during the TTL.
+func sealProtectedEntries(db *gokeepasslib.Database) (map[string]map[string]*memprotect.Sealed, error) {
+	sealed := make(map[string]map[string]*memprotect.Sealed)
+	if db == nil || db.Content == nil || db.Content.Root == nil {
+		return sealed, nil
+	}
+
+	var walk func(g *gokeepasslib.Group, groupPath []string) error
+	walk = func(g *gokeepasslib.Group, groupPath []string) error {
+		curPath := groupPath
+		if g.Name != "" {
+			curPath = append(curPath, g.Name)
+		}
+
+		for ei := range g.Entries {
+			e := &g.Entries[ei]
+			title := ""
+			for _, v := range e.Values {
+				if v.Key == "Title" {
+					title = v.Value.Content
+					break
+				}
+			}
+			if title == "" {
+				continue
+			}
+			entryKey := strings.Join(append(curPath, title), "/")
+
+			for vi := range e.Values {
+				v := &e.Values[vi]
+				if !v.Value.Protected.Bool {
+					continue
+				}
+				s, err := memprotect.SealString(v.Value.Content)
+				if err != nil {
+					return err
+				}
+				if sealed[entryKey] == nil {
+					sealed[entryKey] = make(map[string]*memprotect.Sealed)
+				}
+				sealed[entryKey][v.Key] = s
+				// Drop the plaintext reference. The underlying string
+				// bytes remain in memory until GC reclaims them, but no
+				// further code path can reach them.
+				v.Value.Content = ""
+			}
+		}
+
+		for gi := range g.Groups {
+			if err := walk(&g.Groups[gi], curPath); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for gi := range db.Content.Root.Groups {
+		if err := walk(&db.Content.Root.Groups[gi], nil); err != nil {
+			return nil, err
+		}
+	}
+	return sealed, nil
 }
 
 func splitAttribute(s, defaultAttr string) (before, after string) {
@@ -380,7 +468,7 @@ func splitAttribute(s, defaultAttr string) (before, after string) {
 	return s, "Password"
 }
 
-func findAttribute(db *gokeepasslib.Database, entry string, attributeName string) (string, error) {
+func findAttribute(db *gokeepasslib.Database, sealed map[string]map[string]*memprotect.Sealed, entry string, attributeName string) (string, error) {
 	if db == nil || db.Content.Root == nil {
 		return "", errors.New("database not unlocked")
 	}
@@ -395,26 +483,26 @@ func findAttribute(db *gokeepasslib.Database, entry string, attributeName string
 		return "", err
 	}
 
-	var walkGroup func(g gokeepasslib.Group, groupPath []string) (string, bool)
+	var walkGroup func(g gokeepasslib.Group, groupPath []string) (string, bool, error)
 
-	walkGroup = func(g gokeepasslib.Group, groupPath []string) (string, bool) {
-		// Current group path (include this group's name if non-empty)
+	walkGroup = func(g gokeepasslib.Group, groupPath []string) (string, bool, error) {
 		curPath := groupPath
 		if g.Name != "" {
 			curPath = append(curPath, g.Name)
 		}
 
-		// Check entries in this group
 		for _, e := range g.Entries {
 			title := ""
-			attributeValue := ""
+			plainAttr := ""
+			havePlain := false
 
 			for _, v := range e.Values {
-				switch v.Key {
-				case "Title":
+				if v.Key == "Title" {
 					title = v.Value.Content
-				case attributeName:
-					attributeValue = v.Value.Content
+				}
+				if v.Key == attributeName && !v.Value.Protected.Bool {
+					plainAttr = v.Value.Content
+					havePlain = true
 				}
 			}
 
@@ -423,24 +511,40 @@ func findAttribute(db *gokeepasslib.Database, entry string, attributeName string
 			}
 
 			entryPath := append(curPath, title)
-			if matchSegments(patSegs, entryPath) {
-				return attributeValue, true
+			if !matchSegments(patSegs, entryPath) {
+				continue
 			}
+
+			entryKey := strings.Join(entryPath, "/")
+			if attrs, ok := sealed[entryKey]; ok {
+				if s, ok := attrs[attributeName]; ok {
+					pt, err := s.OpenString()
+					if err != nil {
+						return "", false, err
+					}
+					return pt, true, nil
+				}
+			}
+			if havePlain {
+				return plainAttr, true, nil
+			}
+			return "", true, nil
 		}
 
-		// Recurse into subgroups (DFS)
 		for _, sg := range g.Groups {
-			if p, ok := walkGroup(sg, curPath); ok {
-				return p, true
+			if p, ok, err := walkGroup(sg, curPath); ok || err != nil {
+				return p, ok, err
 			}
 		}
 
-		return "", false
+		return "", false, nil
 	}
 
 	root := db.Content.Root
 	for _, g := range root.Groups {
-		if p, ok := walkGroup(g, nil); ok {
+		if p, ok, err := walkGroup(g, nil); err != nil {
+			return "", err
+		} else if ok {
 			return p, nil
 		}
 	}

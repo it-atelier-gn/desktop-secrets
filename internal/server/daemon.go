@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/config"
+	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
@@ -17,6 +18,10 @@ import (
 )
 
 func RunDaemon() {
+	// Suppress crash dialogs / minidumps so secrets in memory cannot leak
+	// to disk via Windows Error Reporting or a Unix core file.
+	memprotect.DisableErrorReporting()
+
 	// Initialize configuration.
 	if err := config.InitConfig(); err != nil {
 		log.Fatalf("Failed to initialize config: %v", err)
