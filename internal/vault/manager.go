@@ -9,10 +9,12 @@ import (
 	"time"
 
 	vaultapi "github.com/hashicorp/vault/api"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 )
 
 type cacheEntry struct {
-	value   string
+	sealed  *memprotect.Sealed
 	expires time.Time
 }
 
@@ -50,7 +52,7 @@ func (m *Manager) SetTTL(ttl time.Duration) {
 }
 
 func (m *Manager) init() error {
-	if m.cli != nil {
+	if m.logical != nil {
 		return nil
 	}
 	c, err := m.newClient()
@@ -75,8 +77,8 @@ func (m *Manager) ResolveSecret(ctx context.Context, path, field string) (string
 		return "", fmt.Errorf("empty vault path")
 	}
 
-	if e, ok := m.cache[path]; ok && time.Now().Before(e.expires) {
-		return selectField(e.value, field)
+	if raw, ok := m.readCache(path); ok {
+		return selectField(raw, field)
 	}
 
 	if err := m.init(); err != nil {
@@ -102,8 +104,47 @@ func (m *Manager) ResolveSecret(ctx context.Context, path, field string) (string
 		return "", fmt.Errorf("vault: marshal response: %w", err)
 	}
 
-	m.cache[path] = cacheEntry{value: string(raw), expires: time.Now().Add(m.ttl)}
+	m.storeCache(path, string(raw))
 	return selectField(string(raw), field)
+}
+
+func (m *Manager) readCache(key string) (string, bool) {
+	e, ok := m.cache[key]
+	if !ok {
+		return "", false
+	}
+	if !time.Now().Before(e.expires) {
+		e.sealed.Destroy()
+		delete(m.cache, key)
+		return "", false
+	}
+	pt, err := e.sealed.OpenString()
+	if err != nil {
+		return "", false
+	}
+	return pt, true
+}
+
+func (m *Manager) storeCache(key, raw string) {
+	sealed, err := memprotect.SealString(raw)
+	if err != nil {
+		return
+	}
+	if old, ok := m.cache[key]; ok {
+		old.sealed.Destroy()
+	}
+	entry := cacheEntry{sealed: sealed, expires: time.Now().Add(m.ttl)}
+	m.cache[key] = entry
+
+	go func(k string, e cacheEntry, d time.Duration) {
+		<-time.After(d)
+		m.mu.Lock()
+		if cur, ok := m.cache[k]; ok && cur.sealed == e.sealed {
+			delete(m.cache, k)
+		}
+		m.mu.Unlock()
+		e.sealed.Destroy()
+	}(key, entry, m.ttl)
 }
 
 // selectField returns the requested field from a JSON-encoded map. If field is

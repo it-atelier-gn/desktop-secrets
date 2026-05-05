@@ -8,10 +8,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 )
 
 type cacheEntry struct {
-	value   string
+	sealed  *memprotect.Sealed
 	expires time.Time
 }
 
@@ -69,8 +71,8 @@ func (m *Manager) ResolveSecret(ctx context.Context, ref, field string) (string,
 
 	opURI := "op://" + ref + "/" + field
 	cacheKey := opURI
-	if e, ok := m.cache[cacheKey]; ok && time.Now().Before(e.expires) {
-		return e.value, nil
+	if val, ok := m.readCache(cacheKey); ok {
+		return val, nil
 	}
 
 	out, err := m.runOp(ctx, "read", opURI)
@@ -79,6 +81,45 @@ func (m *Manager) ResolveSecret(ctx context.Context, ref, field string) (string,
 	}
 	val := strings.TrimRight(string(out), "\r\n")
 
-	m.cache[cacheKey] = cacheEntry{value: val, expires: time.Now().Add(m.ttl)}
+	m.storeCache(cacheKey, val)
 	return val, nil
+}
+
+func (m *Manager) readCache(key string) (string, bool) {
+	e, ok := m.cache[key]
+	if !ok {
+		return "", false
+	}
+	if !time.Now().Before(e.expires) {
+		e.sealed.Destroy()
+		delete(m.cache, key)
+		return "", false
+	}
+	pt, err := e.sealed.OpenString()
+	if err != nil {
+		return "", false
+	}
+	return pt, true
+}
+
+func (m *Manager) storeCache(key, raw string) {
+	sealed, err := memprotect.SealString(raw)
+	if err != nil {
+		return
+	}
+	if old, ok := m.cache[key]; ok {
+		old.sealed.Destroy()
+	}
+	entry := cacheEntry{sealed: sealed, expires: time.Now().Add(m.ttl)}
+	m.cache[key] = entry
+
+	go func(k string, e cacheEntry, d time.Duration) {
+		<-time.After(d)
+		m.mu.Lock()
+		if cur, ok := m.cache[k]; ok && cur.sealed == e.sealed {
+			delete(m.cache, k)
+		}
+		m.mu.Unlock()
+		e.sealed.Destroy()
+	}(key, entry, m.ttl)
 }

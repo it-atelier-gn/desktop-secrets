@@ -11,10 +11,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 )
 
 type cacheEntry struct {
-	value   string
+	sealed  *memprotect.Sealed
 	expires time.Time
 }
 
@@ -64,8 +66,8 @@ func (m *Manager) ResolveSecret(ctx context.Context, secretID, field string) (st
 	}
 
 	cacheKey := "sm:" + secretID
-	if e, ok := m.cache[cacheKey]; ok && time.Now().Before(e.expires) {
-		return extractField(e.value, field)
+	if raw, ok := m.readCache(cacheKey); ok {
+		return extractField(raw, field)
 	}
 
 	out, err := m.smCli.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
@@ -80,7 +82,7 @@ func (m *Manager) ResolveSecret(ctx context.Context, secretID, field string) (st
 		raw = *out.SecretString
 	}
 
-	m.cache[cacheKey] = cacheEntry{value: raw, expires: time.Now().Add(m.ttl)}
+	m.storeCache(cacheKey, raw)
 	return extractField(raw, field)
 }
 
@@ -93,8 +95,8 @@ func (m *Manager) ResolveParameter(ctx context.Context, name, field string) (str
 	}
 
 	cacheKey := "ps:" + name
-	if e, ok := m.cache[cacheKey]; ok && time.Now().Before(e.expires) {
-		return extractField(e.value, field)
+	if raw, ok := m.readCache(cacheKey); ok {
+		return extractField(raw, field)
 	}
 
 	out, err := m.psCli.GetParameter(ctx, &ssm.GetParameterInput{
@@ -110,8 +112,51 @@ func (m *Manager) ResolveParameter(ctx context.Context, name, field string) (str
 		raw = *out.Parameter.Value
 	}
 
-	m.cache[cacheKey] = cacheEntry{value: raw, expires: time.Now().Add(m.ttl)}
+	m.storeCache(cacheKey, raw)
 	return extractField(raw, field)
+}
+
+// readCache returns the decrypted plaintext for a cache key if present and
+// not expired. Expired entries are evicted and zeroed.
+func (m *Manager) readCache(key string) (string, bool) {
+	e, ok := m.cache[key]
+	if !ok {
+		return "", false
+	}
+	if !time.Now().Before(e.expires) {
+		e.sealed.Destroy()
+		delete(m.cache, key)
+		return "", false
+	}
+	pt, err := e.sealed.OpenString()
+	if err != nil {
+		return "", false
+	}
+	return pt, true
+}
+
+// storeCache encrypts and inserts a new value, destroying any prior entry
+// under the same key and scheduling a wipe at TTL expiry.
+func (m *Manager) storeCache(key, raw string) {
+	sealed, err := memprotect.SealString(raw)
+	if err != nil {
+		return
+	}
+	if old, ok := m.cache[key]; ok {
+		old.sealed.Destroy()
+	}
+	entry := cacheEntry{sealed: sealed, expires: time.Now().Add(m.ttl)}
+	m.cache[key] = entry
+
+	go func(k string, e cacheEntry, d time.Duration) {
+		<-time.After(d)
+		m.mu.Lock()
+		if cur, ok := m.cache[k]; ok && cur.sealed == e.sealed {
+			delete(m.cache, k)
+		}
+		m.mu.Unlock()
+		e.sealed.Destroy()
+	}(key, entry, m.ttl)
 }
 
 // extractField returns a JSON field from value if field is non-empty,
