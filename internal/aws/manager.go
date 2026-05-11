@@ -116,6 +116,17 @@ func (m *Manager) ResolveParameter(ctx context.Context, name, field string) (str
 	return extractField(raw, field)
 }
 
+// Evict removes a single cache entry by key (e.g. "sm:<id>" or "ps:<name>").
+// No-op if the key is not present.
+func (m *Manager) Evict(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.cache[key]; ok {
+		e.sealed.Destroy()
+		delete(m.cache, key)
+	}
+}
+
 // readCache returns the decrypted plaintext for a cache key if present and
 // not expired. Expired entries are evicted and zeroed.
 func (m *Manager) readCache(key string) (string, bool) {

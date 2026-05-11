@@ -1,7 +1,7 @@
 package shm
 
 type DaemonState struct {
-	Port  int    `json:"port"`
-	Token string `json:"token"`
-	PID   int    `json:"pid"`
+	Endpoint string `json:"endpoint"`
+	Token    string `json:"token"`
+	PID      int    `json:"pid"`
 }

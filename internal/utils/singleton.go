@@ -14,8 +14,11 @@ var (
 )
 
 func EnsureSingleInstance(filename string) error {
-	tmp := os.TempDir()
-	lockFile = filepath.Join(tmp, filename)
+	dir, err := GetRuntimeDirectory()
+	if err != nil {
+		return fmt.Errorf("locate runtime directory: %w", err)
+	}
+	lockFile = filepath.Join(dir, filename)
 	appLock = flock.New(lockFile)
 
 	locked, err := appLock.TryLock()

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
@@ -24,7 +25,7 @@ type alias struct {
 	master string
 }
 
-func (a *alias) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (a *alias) UnmarshalYAML(unmarshal func(any) error) error {
 	var s string
 	if err := unmarshal(&s); err == nil {
 		a.file = s
@@ -87,6 +88,34 @@ func NewKPManager() *KPManager {
 
 func (m *KPManager) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 	m.unlockTTL = unlockTTL
+}
+
+// IsVaultUnlocked reports whether a non-expired unlocked-vault cache
+// entry exists for key. The resolver gate uses this to predict whether
+// the next ResolvePassword call will trigger a master-password dialog
+// — if it would, the separate retrieval-approval prompt is skipped and
+// a successful unlock implicitly approves access.
+func (m *KPManager) IsVaultUnlocked(key string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	v, ok := m.vaults[key]
+	return ok && v.db != nil && time.Now().Before(v.expires)
+}
+
+// EvictVault drops the cached unlocked vault by its short key (alias
+// or filepath.Base of the vault path). The vault must be re-unlocked
+// on the next access. Used when the user picks Forget on the
+// approval dialog.
+func (m *KPManager) EvictVault(key string) {
+	m.mu.Lock()
+	v, ok := m.vaults[key]
+	if ok {
+		delete(m.vaults, key)
+	}
+	m.mu.Unlock()
+	if v != nil {
+		v.destroy()
+	}
 }
 
 func (m *KPManager) LoadAliases() error {
@@ -202,7 +231,9 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, entry string, ma
 			}
 		}
 	} else {
-		dbPath = os.ExpandEnv(vault)
+		// Direct paths are NOT env-expanded: that would leak the daemon's
+		// env back to the client via the error path. Use aliases for $VAR.
+		dbPath = vault
 		alias = filepath.Base(dbPath)
 	}
 
@@ -212,7 +243,7 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, entry string, ma
 	}
 
 	// Get (or open) the unlocked vault. Prefer non-interactive unlock using nestedToken
-	vlt, err := m.getOrOpenVault(alias, abs, master, ttl)
+	vlt, err := m.getOrOpenVault(ctx, alias, abs, master, ttl)
 	if err != nil {
 		return "", err
 	}
@@ -233,7 +264,7 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, entry string, ma
 	return pwd, nil
 }
 
-func (m *KPManager) getOrOpenVault(key, path, master string, ttl time.Duration) (*unlockedVault, error) {
+func (m *KPManager) getOrOpenVault(ctx context.Context, key, path, master string, ttl time.Duration) (*unlockedVault, error) {
 	m.mu.Lock()
 	if v, exists := m.vaults[key]; exists && v.db != nil && time.Now().Before(v.expires) {
 		m.mu.Unlock()
@@ -250,7 +281,7 @@ func (m *KPManager) getOrOpenVault(key, path, master string, ttl time.Duration) 
 	m.mu.RUnlock()
 
 	if lastKeyfile != "" {
-		if u, err := m.openVaultWithKeyfile(path, lastKeyfile, ttl); err == nil {
+		if u, err := m.openVaultWithKeyfile(key, path, lastKeyfile, ttl); err == nil {
 			m.mu.Lock()
 			m.vaults[key] = u
 			m.mu.Unlock()
@@ -260,7 +291,7 @@ func (m *KPManager) getOrOpenVault(key, path, master string, ttl time.Duration) 
 
 	// Try non-interactive master password
 	if master != "" {
-		if u, err := m.openVaultWithMaster(path, master, ttl); err == nil {
+		if u, err := m.openVaultWithMaster(key, path, master, ttl); err == nil {
 			m.mu.Lock()
 			m.vaults[key] = u
 			m.mu.Unlock()
@@ -279,12 +310,16 @@ func (m *KPManager) getOrOpenVault(key, path, master string, ttl time.Duration) 
 		CurrentTTL:  int(m.unlockTTL.Load().Minutes()),
 		Check: func(useKeyfile bool, keyfile string, password string, ttl int) error {
 			if useKeyfile {
-				u, err = m.openVaultWithKeyfile(path, keyfile, time.Duration(ttl)*time.Minute)
+				u, err = m.openVaultWithKeyfile(key, path, keyfile, time.Duration(ttl)*time.Minute)
 			} else {
-				u, err = m.openVaultWithMaster(path, password, time.Duration(ttl)*time.Minute)
+				u, err = m.openVaultWithMaster(key, path, password, time.Duration(ttl)*time.Minute)
 			}
 			return err
 		},
+	}
+	if info := clientinfo.InfoFromContext(ctx); info.PID != 0 || info.ExePath != "" || info.Name != "" {
+		keepOpts.ClientDisplay = info.Short()
+		keepOpts.ClientDetails = info.Tooltip()
 	}
 
 	result, err := prompt.PromptForPassword("KeePass", prompt.StyleKeePass, keepOpts, nil)
@@ -313,12 +348,12 @@ func (m *KPManager) getOrOpenVault(key, path, master string, ttl time.Duration) 
 	return u, nil
 }
 
-func (m *KPManager) openVaultWithMaster(path, master string, ttl time.Duration) (*unlockedVault, error) {
+func (m *KPManager) openVaultWithMaster(key, path, master string, ttl time.Duration) (*unlockedVault, error) {
 	creds := gokeepasslib.NewPasswordCredentials(master)
-	return m.openVault(path, ttl, creds)
+	return m.openVault(key, path, ttl, creds)
 }
 
-func (m *KPManager) openVaultWithKeyfile(path, keyfile string, ttl time.Duration) (*unlockedVault, error) {
+func (m *KPManager) openVaultWithKeyfile(key, path, keyfile string, ttl time.Duration) (*unlockedVault, error) {
 	info, err := os.Stat(keyfile)
 	if err != nil {
 		return nil, fmt.Errorf("stat keyfile: %w", err)
@@ -335,7 +370,7 @@ func (m *KPManager) openVaultWithKeyfile(path, keyfile string, ttl time.Duration
 		pwd := strings.TrimRight(string(data), "\r\n")
 
 		if pwd != "" {
-			if u, err := m.openVault(path, ttl, gokeepasslib.NewPasswordCredentials(pwd)); err == nil {
+			if u, err := m.openVault(key, path, ttl, gokeepasslib.NewPasswordCredentials(pwd)); err == nil {
 				return u, nil
 			}
 		}
@@ -346,10 +381,10 @@ func (m *KPManager) openVaultWithKeyfile(path, keyfile string, ttl time.Duration
 		return nil, fmt.Errorf("create key credentials: %w", err)
 	}
 
-	return m.openVault(path, ttl, creds)
+	return m.openVault(key, path, ttl, creds)
 }
 
-func (m *KPManager) openVault(path string, ttl time.Duration, creds *gokeepasslib.DBCredentials) (*unlockedVault, error) {
+func (m *KPManager) openVault(key, path string, ttl time.Duration, creds *gokeepasslib.DBCredentials) (*unlockedVault, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -381,10 +416,14 @@ func (m *KPManager) openVault(path string, ttl time.Duration, creds *gokeepassli
 	go func(key string, u *unlockedVault, ttl time.Duration) {
 		<-time.After(ttl)
 		m.mu.Lock()
-		delete(m.vaults, key)
+		// Only delete if the cache still points at *this* vault — a
+		// concurrent re-unlock would otherwise be evicted by us.
+		if cur, ok := m.vaults[key]; ok && cur == u {
+			delete(m.vaults, key)
+		}
 		m.mu.Unlock()
 		u.destroy()
-	}(filepath.Base(path), u, ttl)
+	}(key, u, ttl)
 
 	return u, nil
 }
@@ -552,13 +591,18 @@ func findAttribute(db *gokeepasslib.Database, sealed map[string]map[string]*memp
 	return "", fmt.Errorf("entry %q not found", entry)
 }
 
+// matchSeg is exponential in the number of "**" wildcards, and the pattern
+// is client-controlled. Cap both to keep worst-case bounded.
+const (
+	maxPatternSegments = 64
+	maxDoubleStars     = 4
+)
+
 // splitPattern splits a pattern like "/AWS/*/Prod/api-key" into segments,
 // handling ** and escaped slashes (\/).
+
 func splitPattern(p string) ([]string, error) {
-	// strip leading '/'
-	if strings.HasPrefix(p, "/") {
-		p = p[1:]
-	}
+	p = strings.TrimPrefix(p, "/")
 
 	var segs []string
 	var buf strings.Builder
@@ -584,6 +628,19 @@ func splitPattern(p string) ([]string, error) {
 	}
 	if buf.Len() > 0 {
 		segs = append(segs, buf.String())
+	}
+
+	if len(segs) > maxPatternSegments {
+		return nil, fmt.Errorf("pattern has %d segments (max %d)", len(segs), maxPatternSegments)
+	}
+	doubleStars := 0
+	for _, s := range segs {
+		if s == "**" {
+			doubleStars++
+		}
+	}
+	if doubleStars > maxDoubleStars {
+		return nil, fmt.Errorf("pattern has %d ** wildcards (max %d)", doubleStars, maxDoubleStars)
 	}
 
 	return segs, nil

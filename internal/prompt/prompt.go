@@ -21,16 +21,20 @@ const (
 )
 
 type KeepassOptions struct {
-	KeepassFile string
-	UseKeyfile  bool
-	Keyfile     string
-	CurrentTTL  int
-	Check       func(useKeyfile bool, keyfile string, password string, ttl int) error
+	KeepassFile   string
+	UseKeyfile    bool
+	Keyfile       string
+	CurrentTTL    int
+	ClientDisplay string // calling-process label (e.g. exe path); shown when non-empty
+	ClientDetails string // multi-line process details revealed on hover
+	Check         func(useKeyfile bool, keyfile string, password string, ttl int) error
 }
 
 type UserOptions struct {
-	Prompt     string
-	CurrentTTL int
+	Prompt        string
+	CurrentTTL    int
+	ClientDisplay string // calling-process label (e.g. exe path); shown when non-empty
+	ClientDetails string // multi-line process details revealed on hover
 }
 
 type PromptResult struct {
@@ -80,7 +84,7 @@ func PromptForPassword(title string, style Style, keepOpts *KeepassOptions, user
 func newWindow(a fyne.App, title string, resultCh chan any) fyne.Window {
 	w := a.NewWindow(fmt.Sprintf("DesktopSecrets - %s", title))
 	w.SetIcon(fyne.NewStaticResource("icon.ico", assets.IconBytes))
-	w.Resize(fyne.NewSize(400, 170))
+	w.Resize(fyne.NewSize(560, 200))
 	w.CenterOnScreen()
 
 	w.SetCloseIntercept(func() {
@@ -111,11 +115,24 @@ func buildUserUI(w fyne.Window, opts *UserOptions, resultCh chan any) {
 
 	passwordEntry.OnSubmitted = func(_ string) { submit() }
 
-	center := container.NewVBox(
-		boldCentered(opts.Prompt),
+	centerItems := []fyne.CanvasObject{
+		boldCentered(sanitizeForDisplay(opts.Prompt, maxProviderRefDisplay)),
+	}
+	if opts.ClientDisplay != "" {
+		centerItems = append(centerItems,
+			widget.NewLabel("Process:"),
+			newHoverLabel(
+				sanitizeForDisplay(opts.ClientDisplay, maxClientDisplayLen),
+				sanitizeTooltip(opts.ClientDetails),
+				w,
+			),
+		)
+	}
+	centerItems = append(centerItems,
 		widget.NewLabel("Password:"),
 		passwordEntry,
 	)
+	center := container.NewVBox(centerItems...)
 
 	bottom := container.NewVBox(
 		layout.NewSpacer(),
@@ -204,13 +221,26 @@ func buildKeePassUI(a fyne.App, w fyne.Window, opts *KeepassOptions, resultCh ch
 
 	passwordEntry.OnSubmitted = func(_ string) { submit() }
 
-	center := container.NewVBox(
+	centerItems := []fyne.CanvasObject{
 		boldCentered(opts.KeepassFile),
+	}
+	if opts.ClientDisplay != "" {
+		centerItems = append(centerItems,
+			widget.NewLabel("Process:"),
+			newHoverLabel(
+				sanitizeForDisplay(opts.ClientDisplay, maxClientDisplayLen),
+				sanitizeTooltip(opts.ClientDetails),
+				w,
+			),
+		)
+	}
+	centerItems = append(centerItems,
 		useKeyfile,
 		keyfileBox,
 		widget.NewLabel("Master Password:"),
 		passwordEntry,
 	)
+	center := container.NewVBox(centerItems...)
 
 	bottom := container.NewVBox(
 		layout.NewSpacer(),
@@ -223,7 +253,7 @@ func buildKeePassUI(a fyne.App, w fyne.Window, opts *KeepassOptions, resultCh ch
 		),
 	)
 
-	w.Resize(fyne.NewSize(400, 200))
+	w.Resize(fyne.NewSize(560, 240))
 	w.SetContent(container.NewBorder(nil, bottom, nil, nil, center))
 	w.Canvas().SetOnTypedKey(func(k *fyne.KeyEvent) {
 		if k.Name == fyne.KeyEscape {

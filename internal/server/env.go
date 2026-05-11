@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/approval"
+	"github.com/it-atelier-gn/desktop-secrets/internal/env"
 )
 
 // ResolveEnvLines processes KEY=VALUE lines and replaces values of the form
@@ -36,22 +38,28 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 		}
 
 		// expect KEY=VALUE; if not present, leave unchanged
-		idx := strings.Index(line, "=")
-		if idx < 0 {
+		rawKey, rawVal, ok := strings.Cut(line, "=")
+		if !ok {
 			out = append(out, line)
 			continue
 		}
-		key := strings.TrimSpace(line[:idx])
-		val := strings.TrimSpace(line[idx+1:])
+		key := strings.TrimSpace(rawKey)
+		val := strings.TrimSpace(rawVal)
 
-		// only attempt parse when value clearly starts with a known provider prefix
+		if !env.IsValidKey(key) {
+			errs = append(errs, fmt.Errorf("invalid environment variable name %q", key))
+			continue
+		}
+
+		// Non-provider lines pass through verbatim. Server-side os.ExpandEnv
+		// would expand against the daemon's env, leaking it to the client.
 		lower := strings.ToLower(val)
 		if !strings.HasPrefix(lower, "keepass(") && !strings.HasPrefix(lower, "user(") &&
 			!strings.HasPrefix(lower, "wincred(") && !strings.HasPrefix(lower, "awssm(") &&
 			!strings.HasPrefix(lower, "awsps(") && !strings.HasPrefix(lower, "azkv(") &&
 			!strings.HasPrefix(lower, "gcpsm(") && !strings.HasPrefix(lower, "keychain(") &&
 			!strings.HasPrefix(lower, "vault(") && !strings.HasPrefix(lower, "op(") {
-			out = append(out, key+"="+os.ExpandEnv(val))
+			out = append(out, key+"="+val)
 			continue
 		}
 
@@ -65,6 +73,47 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 	}
 
 	return out, errs
+}
+
+// gate enforces retrieval-approval (when enabled). When approval is
+// disabled or the gate field is nil (tests), it just calls fn.
+//
+// providerKey is the canonical lowercase ID stored in the approval
+// store. providerRef is the human-readable form shown to the user.
+// evictor is invoked when the user picks Forget.
+func gate(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, fn func() (string, error)) (string, error) {
+	return gateAutoApprove(ctx, app, providerKey, providerRef, evictor, nil, fn)
+}
+
+// gateAutoApprove is gate(...) with an extra "will-prompt" predicate.
+// When approval is enabled and no live grant exists, the predicate
+// reports whether fn() is itself going to put a password / unlock
+// dialog in front of the user. If so, the separate retrieval-approval
+// prompt is skipped — the user already has to consent to release the
+// secret by entering the password — and a successful fn() implicitly
+// records the grant. Subsequent calls (cache warm) fall back to the
+// normal approval prompt, which is the point: approve once at unlock,
+// then surface explicit approval prompts thereafter.
+func gateAutoApprove(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, willPrompt func() bool, fn func() (string, error)) (string, error) {
+	if app.Gate == nil || !app.RetrievalApproval.Load() {
+		return fn()
+	}
+	pid := ClientPIDFromContext(ctx)
+	if app.Gate.IsApproved(pid, providerKey) {
+		return fn()
+	}
+	if willPrompt != nil && willPrompt() {
+		out, err := fn()
+		if err != nil {
+			return "", err
+		}
+		app.Gate.GrantImplicit(pid, providerKey)
+		return out, nil
+	}
+	if err := app.Gate.Check(pid, providerKey, providerRef, evictor); err != nil {
+		return "", err
+	}
+	return fn()
 }
 
 // parseAndResolve parses a top-level expression and resolves it.
@@ -85,11 +134,16 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if title == "" {
 			return "", errors.New("empty user title")
 		}
-		pass, err := app.USER.ResolvePassword(ctx, title, ttl)
-		if err != nil {
-			return "", fmt.Errorf("user resolve failed: %w", err)
-		}
-		return pass, nil
+		return gateAutoApprove(ctx, app, "user:"+title, fmt.Sprintf("user(%s)", title),
+			func(_ string) { app.USER.Evict(title) },
+			func() bool { return !app.USER.HasCached(title) },
+			func() (string, error) {
+				p, err := app.USER.ResolvePassword(ctx, title, ttl)
+				if err != nil {
+					return "", fmt.Errorf("user resolve failed: %w", err)
+				}
+				return p, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "keepass(") {
@@ -116,6 +170,14 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 			return "", fmt.Errorf("invalid vault expression: %w", err)
 		}
 
+		providerKey := "keepass:" + strings.ToLower(base) + "|" + title
+		providerRef := fmt.Sprintf("keepass(%s | %s)", base, title)
+		evictor := approval.Evictor(func(_ string) {
+			// Drop the cached unlocked vault so the user has to
+			// re-unlock on next access.
+			app.KP.EvictVault(kpVaultKey(base))
+		})
+
 		// If there is a nested expression, resolve it first and pass it via context.
 		if nestedExpr != "" {
 			ne := strings.TrimSpace(nestedExpr)
@@ -126,24 +188,31 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 			if err != nil {
 				return "", fmt.Errorf("resolving nested expression %q: %w", ne, err)
 			}
-			// pass nestedResolved via context to the upper-level KP resolver
-			pass, err := app.KP.ResolvePassword(ctx, base, title, nestedResolved, ttl, func(expr string) (string, error) {
-				return parseAndResolve(ctx, app, ttl, expr)
-			})
-			if err != nil {
-				return "", fmt.Errorf("keepass resolve failed: %w", err)
-			}
-			return pass, nil
+			willPrompt := func() bool { return !app.KP.IsVaultUnlocked(kpVaultKey(base)) }
+			return gateAutoApprove(ctx, app, providerKey, providerRef, evictor, willPrompt,
+				func() (string, error) {
+					p, err := app.KP.ResolvePassword(ctx, base, title, nestedResolved, ttl, func(expr string) (string, error) {
+						return parseAndResolve(ctx, app, ttl, expr)
+					})
+					if err != nil {
+						return "", fmt.Errorf("keepass resolve failed: %w", err)
+					}
+					return p, nil
+				})
 		}
 
 		// no nested expression: call resolver normally
-		pass, err := app.KP.ResolvePassword(ctx, base, title, "", ttl, func(expr string) (string, error) {
-			return parseAndResolve(ctx, app, ttl, expr)
-		})
-		if err != nil {
-			return "", fmt.Errorf("keepass resolve failed: %w", err)
-		}
-		return pass, nil
+		willPrompt := func() bool { return !app.KP.IsVaultUnlocked(kpVaultKey(base)) }
+		return gateAutoApprove(ctx, app, providerKey, providerRef, evictor, willPrompt,
+			func() (string, error) {
+				p, err := app.KP.ResolvePassword(ctx, base, title, "", ttl, func(expr string) (string, error) {
+					return parseAndResolve(ctx, app, ttl, expr)
+				})
+				if err != nil {
+					return "", fmt.Errorf("keepass resolve failed: %w", err)
+				}
+				return p, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "wincred(") {
@@ -166,11 +235,14 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if target == "" {
 			return "", errors.New("empty wincred target")
 		}
-		val, err := app.WINCRED.Resolve(ctx, target, field)
-		if err != nil {
-			return "", fmt.Errorf("wincred resolve failed: %w", err)
-		}
-		return val, nil
+		return gate(ctx, app, "wincred:"+target+"|"+field, fmt.Sprintf("wincred(%s|%s)", target, field), nil,
+			func() (string, error) {
+				v, err := app.WINCRED.Resolve(ctx, target, field)
+				if err != nil {
+					return "", fmt.Errorf("wincred resolve failed: %w", err)
+				}
+				return v, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "awssm(") {
@@ -185,11 +257,15 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if secretID == "" {
 			return "", errors.New("empty awssm secret id")
 		}
-		val, err := app.AWS.ResolveSecret(ctx, secretID, field)
-		if err != nil {
-			return "", fmt.Errorf("awssm resolve failed: %w", err)
-		}
-		return val, nil
+		return gate(ctx, app, "awssm:"+secretID+"|"+field, fmt.Sprintf("awssm(%s|%s)", secretID, field),
+			func(_ string) { app.AWS.Evict("sm:" + secretID) },
+			func() (string, error) {
+				v, err := app.AWS.ResolveSecret(ctx, secretID, field)
+				if err != nil {
+					return "", fmt.Errorf("awssm resolve failed: %w", err)
+				}
+				return v, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "awsps(") {
@@ -204,11 +280,15 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if name == "" {
 			return "", errors.New("empty awsps parameter name")
 		}
-		val, err := app.AWS.ResolveParameter(ctx, name, field)
-		if err != nil {
-			return "", fmt.Errorf("awsps resolve failed: %w", err)
-		}
-		return val, nil
+		return gate(ctx, app, "awsps:"+name+"|"+field, fmt.Sprintf("awsps(%s|%s)", name, field),
+			func(_ string) { app.AWS.Evict("ps:" + name) },
+			func() (string, error) {
+				v, err := app.AWS.ResolveParameter(ctx, name, field)
+				if err != nil {
+					return "", fmt.Errorf("awsps resolve failed: %w", err)
+				}
+				return v, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "azkv(") {
@@ -223,11 +303,15 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if ref == "" {
 			return "", errors.New("empty azkv reference")
 		}
-		val, err := app.AZKV.ResolveSecret(ctx, ref, field)
-		if err != nil {
-			return "", fmt.Errorf("azkv resolve failed: %w", err)
-		}
-		return val, nil
+		return gate(ctx, app, "azkv:"+ref+"|"+field, fmt.Sprintf("azkv(%s|%s)", ref, field),
+			func(_ string) { app.AZKV.Evict(ref) },
+			func() (string, error) {
+				v, err := app.AZKV.ResolveSecret(ctx, ref, field)
+				if err != nil {
+					return "", fmt.Errorf("azkv resolve failed: %w", err)
+				}
+				return v, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "gcpsm(") {
@@ -242,11 +326,15 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if ref == "" {
 			return "", errors.New("empty gcpsm reference")
 		}
-		val, err := app.GCPSM.ResolveSecret(ctx, ref, field)
-		if err != nil {
-			return "", fmt.Errorf("gcpsm resolve failed: %w", err)
-		}
-		return val, nil
+		return gate(ctx, app, "gcpsm:"+ref+"|"+field, fmt.Sprintf("gcpsm(%s|%s)", ref, field),
+			func(_ string) { app.GCPSM.Evict(ref) },
+			func() (string, error) {
+				v, err := app.GCPSM.ResolveSecret(ctx, ref, field)
+				if err != nil {
+					return "", fmt.Errorf("gcpsm resolve failed: %w", err)
+				}
+				return v, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "keychain(") {
@@ -261,11 +349,14 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if service == "" {
 			return "", errors.New("empty keychain service")
 		}
-		val, err := app.KEYCHAIN.Resolve(ctx, service, account)
-		if err != nil {
-			return "", fmt.Errorf("keychain resolve failed: %w", err)
-		}
-		return val, nil
+		return gate(ctx, app, "keychain:"+service+"|"+account, fmt.Sprintf("keychain(%s|%s)", service, account), nil,
+			func() (string, error) {
+				v, err := app.KEYCHAIN.Resolve(ctx, service, account)
+				if err != nil {
+					return "", fmt.Errorf("keychain resolve failed: %w", err)
+				}
+				return v, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "vault(") {
@@ -280,11 +371,15 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if path == "" {
 			return "", errors.New("empty vault path")
 		}
-		val, err := app.VAULT.ResolveSecret(ctx, path, field)
-		if err != nil {
-			return "", fmt.Errorf("vault resolve failed: %w", err)
-		}
-		return val, nil
+		return gate(ctx, app, "vault:"+path+"|"+field, fmt.Sprintf("vault(%s|%s)", path, field),
+			func(_ string) { app.VAULT.Evict(path) },
+			func() (string, error) {
+				v, err := app.VAULT.ResolveSecret(ctx, path, field)
+				if err != nil {
+					return "", fmt.Errorf("vault resolve failed: %w", err)
+				}
+				return v, nil
+			})
 	}
 
 	if strings.HasPrefix(strings.ToLower(s), "op(") {
@@ -299,14 +394,30 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if ref == "" {
 			return "", errors.New("empty op reference")
 		}
-		val, err := app.ONEPASSWORD.ResolveSecret(ctx, ref, field)
-		if err != nil {
-			return "", fmt.Errorf("op resolve failed: %w", err)
-		}
-		return val, nil
+		return gate(ctx, app, "op:"+ref+"|"+field, fmt.Sprintf("op(%s|%s)", ref, field),
+			func(_ string) { app.ONEPASSWORD.Evict(ref) },
+			func() (string, error) {
+				v, err := app.ONEPASSWORD.ResolveSecret(ctx, ref, field)
+				if err != nil {
+					return "", fmt.Errorf("op resolve failed: %w", err)
+				}
+				return v, nil
+			})
 	}
 
 	return "", errors.New("not a recognized expression")
+}
+
+// kpVaultKey mirrors KPManager: aliases pass through, direct paths reduce
+// to their basename. No env expansion (see keepass/manager.go).
+func kpVaultKey(base string) string {
+	if rest, ok := strings.CutPrefix(base, "&"); ok {
+		return rest
+	}
+	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
+		return base[i+1:]
+	}
+	return base
 }
 
 // parseParenContent returns the content inside the first matching top-level parentheses
@@ -364,8 +475,8 @@ func indexTopLevelPipe(s string) int {
 // splitFirstPipe splits s at the first '|', returning the part before and after.
 // If no '|' is present, field is empty.
 func splitFirstPipe(s string) (before, field string) {
-	if idx := strings.Index(s, "|"); idx >= 0 {
-		return strings.TrimSpace(s[:idx]), strings.TrimSpace(s[idx+1:])
+	if a, b, ok := strings.Cut(s, "|"); ok {
+		return strings.TrimSpace(a), strings.TrimSpace(b)
 	}
 	return s, ""
 }
@@ -383,9 +494,10 @@ func splitVaultAndSingleNested(vaultRaw string) (base string, nestedExpr string,
 			// find matching top-level ']'
 			depth := 0
 			for j := i; j < len(vaultRaw); j++ {
-				if vaultRaw[j] == '[' {
+				switch vaultRaw[j] {
+				case '[':
 					depth++
-				} else if vaultRaw[j] == ']' {
+				case ']':
 					depth--
 					if depth == 0 {
 						base = strings.TrimSpace(vaultRaw[:i])

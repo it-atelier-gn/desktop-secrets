@@ -6,7 +6,13 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/env"
 )
+
+// safeKey re-checks key validity before shell-format emission. The parser
+// already filters, but a future caller could bypass it.
+func safeKey(k string) bool { return env.IsValidKey(k) }
 
 func quoteForSh(v string) string {
 	if v == "" {
@@ -38,16 +44,25 @@ func quoteForCmd(v string) string {
 func printEnvCommandsAll(envMap map[string]string) {
 	fmt.Println("# POSIX shell (bash, sh, zsh):")
 	for k, v := range envMap {
+		if !safeKey(k) {
+			continue
+		}
 		fmt.Printf("export %s=%s\n", k, quoteForSh(v))
 	}
 	fmt.Println()
 	fmt.Println("# PowerShell (Windows and PowerShell Core):")
 	for k, v := range envMap {
+		if !safeKey(k) {
+			continue
+		}
 		fmt.Printf("$Env:%s = %s\n", k, quoteForPowerShell(v))
 	}
 	fmt.Println()
 	fmt.Println("# Windows cmd.exe:")
 	for k, v := range envMap {
+		if !safeKey(k) {
+			continue
+		}
 		fmt.Printf("set %s=%s\n", k, quoteForCmd(v))
 	}
 }

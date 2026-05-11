@@ -16,7 +16,7 @@ func readStateFromShm() (*shm.DaemonState, error) {
 	if err := json.Unmarshal(b, &st); err != nil {
 		return nil, err
 	}
-	if st.Port <= 0 || st.Token == "" {
+	if st.Endpoint == "" || st.Token == "" {
 		return nil, fmt.Errorf("invalid state in shm")
 	}
 	return &st, nil

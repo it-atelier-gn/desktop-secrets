@@ -108,6 +108,16 @@ func (m *Manager) ResolveSecret(ctx context.Context, path, field string) (string
 	return selectField(string(raw), field)
 }
 
+// Evict removes a single cache entry by key (the Vault secret path).
+func (m *Manager) Evict(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.cache[key]; ok {
+		e.sealed.Destroy()
+		delete(m.cache, key)
+	}
+}
+
 func (m *Manager) readCache(key string) (string, bool) {
 	e, ok := m.cache[key]
 	if !ok {

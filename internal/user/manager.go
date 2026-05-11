@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
@@ -32,7 +33,29 @@ func (m *UserManager) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 	m.unlockTTL = unlockTTL
 }
 
-func (m *UserManager) ResolvePassword(_ context.Context, title string, ttl time.Duration) (string, error) {
+// HasCached reports whether a non-expired password is cached for title.
+// Used by the resolver gate to decide whether the upcoming
+// ResolvePassword call will trigger a UI prompt — if it would, the
+// caller can skip the separate retrieval-approval dialog and treat the
+// successful unlock as implicit approval.
+func (m *UserManager) HasCached(title string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	v, ok := m.password[title]
+	return ok && time.Now().Before(v.expires)
+}
+
+// Evict removes a cached password by title.
+func (m *UserManager) Evict(title string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.password[title]; ok {
+		e.sealed.Destroy()
+		delete(m.password, title)
+	}
+}
+
+func (m *UserManager) ResolvePassword(ctx context.Context, title string, ttl time.Duration) (string, error) {
 	m.mu.RLock()
 	if v, exists := m.password[title]; exists && time.Now().Before(v.expires) {
 		sealed := v.sealed
@@ -44,6 +67,10 @@ func (m *UserManager) ResolvePassword(_ context.Context, title string, ttl time.
 	userOpts := &prompt.UserOptions{
 		CurrentTTL: int(m.unlockTTL.Load().Minutes()),
 		Prompt:     title,
+	}
+	if info := clientinfo.InfoFromContext(ctx); info.PID != 0 || info.ExePath != "" || info.Name != "" {
+		userOpts.ClientDisplay = info.Short()
+		userOpts.ClientDetails = info.Tooltip()
 	}
 
 	result, err := prompt.PromptForPassword("User", prompt.StyleUser, nil, userOpts)

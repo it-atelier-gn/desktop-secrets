@@ -121,6 +121,9 @@ func main() {
 		printJSON(parsed)
 	case "raw":
 		for k, v := range parsed {
+			if !env.IsValidKey(k) {
+				continue
+			}
 			fmt.Printf("%s=%s\n", k, v)
 		}
 	default:

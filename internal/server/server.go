@@ -10,14 +10,32 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
+	"github.com/it-atelier-gn/desktop-secrets/internal/ipc"
 )
 
+// ctxKey is an unexported type for request-context keys to avoid
+// collisions with other packages.
+type ctxKey int
+
+const (
+	ctxKeyClientPID ctxKey = iota
+)
+
+// ClientPIDFromContext returns the peer PID associated with the
+// current HTTP request, or 0 if unavailable.
+func ClientPIDFromContext(ctx context.Context) int {
+	v, _ := ctx.Value(ctxKeyClientPID).(int)
+	return v
+}
+
 type DaemonServer struct {
-	App   *AppState
-	Port  int
-	token string
-	srv   *http.Server
-	ln    net.Listener // pre-bound listener to avoid races
+	App      *AppState
+	Endpoint string
+	token    string
+	srv      *http.Server
+	ln       net.Listener
 }
 
 func NewDaemonServer(app *AppState, token string) (*DaemonServer, error) {
@@ -31,26 +49,26 @@ func NewDaemonServer(app *AppState, token string) (*DaemonServer, error) {
 	mux.HandleFunc("/render", ds.auth(ds.handleRender))
 
 	ds.srv = &http.Server{
-		// Addr is for logging/diagnostics; Serve will use ds.ln directly.
-		// We will fill this after we learn the selected port.
 		Handler:           mux,
 		ReadHeaderTimeout: 3 * time.Second,
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			pid, err := ipc.PeerPID(c)
+			if err != nil {
+				pid = 0
+			}
+			ctx = context.WithValue(ctx, ctxKeyClientPID, pid)
+			ctx = clientinfo.WithInfo(ctx, clientinfo.Lookup(pid))
+			return ctx
+		},
 	}
 
-	// Bind to any free port on IPv4 localhost. Fallback to IPv6 if needed.
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	ln, endpoint, err := ipc.Listen()
 	if err != nil {
-		ln, err = net.Listen("tcp6", "[::1]:0")
-		if err != nil {
-			return nil, fmt.Errorf("cannot find free port: %w", err)
-		}
+		return nil, fmt.Errorf("ipc listen: %w", err)
 	}
 	ds.ln = ln
-
-	// Capture the chosen port and set Addr for clarity.
-	addr := ln.Addr().(*net.TCPAddr)
-	ds.Port = addr.Port
-	ds.srv.Addr = fmt.Sprintf("127.0.0.1:%d", ds.Port)
+	ds.Endpoint = string(endpoint)
+	ds.srv.Addr = string(endpoint)
 
 	return ds, nil
 }
@@ -84,8 +102,7 @@ func (ds *DaemonServer) handleRender(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lines := splitLinesPreserve(string(body))
-	ctx := context.Background()
-	rendered, errs := ResolveEnvLines(ctx, ds.App, lines)
+	rendered, errs := ResolveEnvLines(r.Context(), ds.App, lines)
 
 	if len(errs) > 0 {
 		var sb strings.Builder
@@ -104,20 +121,10 @@ func (ds *DaemonServer) handleRender(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ds *DaemonServer) Serve() error {
-	// Serve on the pre-bound listener to remove race between probing and serving.
-	if ds.ln != nil {
-		return ds.srv.Serve(ds.ln)
-	}
-	// Fallback (shouldn’t happen with Variant A):
-	ln, err := net.Listen("tcp4", ds.srv.Addr)
-	if err != nil {
-		return err
-	}
-	return ds.srv.Serve(ln)
+	return ds.srv.Serve(ds.ln)
 }
 
 func (ds *DaemonServer) Shutdown(ctx context.Context) error {
-	// http.Server.Shutdown will stop accepting new connections and close the listener.
 	return ds.srv.Shutdown(ctx)
 }
 
