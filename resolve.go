@@ -40,9 +40,12 @@ func ResolveSecret(ref string) (string, error) {
 
 	b := fmt.Sprintf("RESULT=%s", ref)
 
-	out, err := client.RenderViaDaemon(cliCtx, st, []byte(b))
+	out, warnings, err := client.RenderViaDaemon(cliCtx, st, []byte(b))
 	if err != nil {
 		return "", err
+	}
+	if warnings > 0 {
+		return "", fmt.Errorf("desktopsecrets: failed to resolve %q (see daemon log / audit log)", ref)
 	}
 
 	result := strings.Split(string(out), "RESULT=")[1]

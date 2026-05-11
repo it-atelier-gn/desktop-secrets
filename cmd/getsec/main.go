@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -40,10 +41,19 @@ func main() {
 
 	b := strings.Join(args, "\n")
 
-	out, err := client.RenderViaDaemon(cliCtx, st, []byte(b))
+	out, warnings, err := client.RenderViaDaemon(cliCtx, st, []byte(b))
 	if err != nil {
 		log.Fatalf("render failed: %v", err)
 	}
 
 	fmt.Print(string(env.ExpandClientEnvBytes(out)))
+
+	// One or more provider lookups failed (user cancelled, denied,
+	// timed out, etc.). The body already carries diagnostic comments
+	// for each unresolved line — exit non-zero so shell pipelines that
+	// expect every requested secret notice the failure.
+	if warnings > 0 {
+		fmt.Fprintf(os.Stderr, "getsec: %d secret(s) failed to resolve (see comments above)\n", warnings)
+		os.Exit(2)
+	}
 }
