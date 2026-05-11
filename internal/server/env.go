@@ -67,7 +67,15 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 
 		resolved, err := parseAndResolve(ctx, app, app.UnlockTTL.Load(), val)
 		if err != nil {
-			out = append(out, line) // keep original on error
+			// Replace the failed line with a diagnostic comment instead
+			// of echoing the literal "KEY=user(...)" provider
+			// expression. Returning the unresolved literal silently
+			// poisons downstream tooling that doesn't read the
+			// X-EnvTray-Warnings header — a shell sourcing the output
+			// would expose a process to a value that looks valid but
+			// isn't. The comment form keeps the diagnostic visible
+			// without ever defining the variable.
+			out = append(out, fmt.Sprintf("# %s=<unresolved: %s>", key, errComment(err)))
 			errs = append(errs, fmt.Errorf("key %s: %w", key, err))
 			continue
 		}
@@ -449,6 +457,23 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 	}
 
 	return "", errors.New("not a recognized expression")
+}
+
+// errComment renders an error message so it can be safely embedded in
+// a single-line shell comment. Newlines, carriage returns, and the
+// closing '>' (which would prematurely terminate "<unresolved: ...>")
+// are collapsed to spaces; the result is truncated to a reasonable
+// length so a chatty provider error can't blow up the rendered file.
+func errComment(err error) string {
+	const maxLen = 200
+	s := err.Error()
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, ">", " ")
+	if len(s) > maxLen {
+		s = s[:maxLen] + "..."
+	}
+	return s
 }
 
 // kpVaultKey mirrors KPManager: aliases pass through, direct paths reduce

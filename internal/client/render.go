@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/ipc"
@@ -14,7 +15,12 @@ import (
 )
 
 // Render by calling the daemon: send the .env.tpl content and read result.
-func RenderViaDaemon(ctx context.Context, st *shm.DaemonState, tpl []byte) ([]byte, error) {
+// Warnings is the count of provider lines the daemon could not resolve
+// (parsed from X-EnvTray-Warnings); the corresponding lines appear in
+// body as "# KEY=<unresolved: ...>" comments instead of definitions.
+// Callers that need strict success — e.g. getsec on a single secret —
+// should treat Warnings > 0 as failure.
+func RenderViaDaemon(ctx context.Context, st *shm.DaemonState, tpl []byte) (body []byte, warnings int, err error) {
 	endpoint := st.Endpoint
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -30,12 +36,18 @@ func RenderViaDaemon(ctx context.Context, st *shm.DaemonState, tpl []byte) ([]by
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("render failed: %s", bytes.TrimSpace(b))
+		return nil, 0, fmt.Errorf("render failed: %s", bytes.TrimSpace(b))
 	}
-	return io.ReadAll(resp.Body)
+	if v := resp.Header.Get("X-EnvTray-Warnings"); v != "" {
+		if n, perr := strconv.Atoi(v); perr == nil {
+			warnings = n
+		}
+	}
+	body, err = io.ReadAll(resp.Body)
+	return body, warnings, err
 }
