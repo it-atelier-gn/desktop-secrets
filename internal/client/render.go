@@ -5,16 +5,26 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/ipc"
 	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 )
 
 // Render by calling the daemon: send the .env.tpl content and read result.
 func RenderViaDaemon(ctx context.Context, st *shm.DaemonState, tpl []byte) ([]byte, error) {
-	client := &http.Client{Timeout: 120 * time.Second}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/render", st.Port), bytes.NewReader(tpl))
+	endpoint := st.Endpoint
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return ipc.Dial(ctx, "", endpoint)
+		},
+		DisableKeepAlives: true,
+	}
+	client := &http.Client{Transport: transport, Timeout: 120 * time.Second}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://ipc/render", bytes.NewReader(tpl))
 	req.Header.Set("X-DesktopSecrets-Token", st.Token)
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
 

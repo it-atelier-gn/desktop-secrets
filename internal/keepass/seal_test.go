@@ -90,7 +90,7 @@ func TestOpenVaultSealsProtectedEntries(t *testing.T) {
 	path, master, _ := writeKDBX(t, dir)
 	m := newManagerForTest(t)
 
-	vlt, err := m.openVaultWithMaster(path, master, time.Hour)
+	vlt, err := m.openVaultWithMaster(filepath.Base(path), path, master, time.Hour)
 	if err != nil {
 		t.Fatalf("openVaultWithMaster: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestVaultDestroyWipesSealedEntries(t *testing.T) {
 	path, master, _ := writeKDBX(t, dir)
 	m := newManagerForTest(t)
 
-	vlt, err := m.openVaultWithMaster(path, master, time.Hour)
+	vlt, err := m.openVaultWithMaster(filepath.Base(path), path, master, time.Hour)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

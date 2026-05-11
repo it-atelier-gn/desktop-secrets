@@ -8,18 +8,14 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// withIsolatedTempDir ensures os.TempDir() resolves into a per-test directory.
-// It sets TMPDIR/TEMP/TMP to t.TempDir() and returns that path.
+// withIsolatedTempDir routes runtime-state files into a per-test dir.
 func withIsolatedTempDir(t *testing.T) string {
 	t.Helper()
 	td := t.TempDir()
-
-	// On Unix, TMPDIR is respected; on Windows, TEMP/TMP are respected.
-	// We set all three to be safe across platforms.
+	t.Setenv("DESKTOP_SECRETS_RUNTIME_DIR", td)
 	t.Setenv("TMPDIR", td)
 	t.Setenv("TEMP", td)
 	t.Setenv("TMP", td)
-
 	return td
 }
 

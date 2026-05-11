@@ -1,8 +1,27 @@
 package keepass
 
 import (
+	"strings"
 	"testing"
 )
+
+func TestSplitPatternCaps(t *testing.T) {
+	// Too many segments.
+	tooLong := "/" + strings.Repeat("a/", maxPatternSegments+1)
+	if _, err := splitPattern(tooLong); err == nil {
+		t.Errorf("expected segment-count cap to reject %d segments", maxPatternSegments+1)
+	}
+	// Too many ** wildcards.
+	stars := "/" + strings.Repeat("**/", maxDoubleStars+1) + "tail"
+	if _, err := splitPattern(stars); err == nil {
+		t.Errorf("expected ** cap to reject %d wildcards", maxDoubleStars+1)
+	}
+	// Just at the cap is allowed.
+	ok := "/" + strings.Repeat("**/", maxDoubleStars) + "tail"
+	if _, err := splitPattern(ok); err != nil {
+		t.Errorf("pattern at cap should be accepted, got %v", err)
+	}
+}
 
 func TestSplitAttribute(t *testing.T) {
 	cases := []struct {

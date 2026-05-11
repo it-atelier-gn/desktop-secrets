@@ -26,6 +26,7 @@ func InitConfig() error {
 	}
 
 	viper.SetDefault("ttl", static.DefaultTTL)
+	viper.SetDefault("retrieval_approval", static.DefaultRetrievalApproval)
 
 	var configFileNotFoundError viper.ConfigFileNotFoundError
 	if err := viper.ReadInConfig(); err != nil {

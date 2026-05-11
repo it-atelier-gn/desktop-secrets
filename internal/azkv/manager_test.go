@@ -29,6 +29,35 @@ func TestSplitVaultAndName(t *testing.T) {
 	}
 }
 
+func TestSplitVaultAndName_RejectsAttackerHosts(t *testing.T) {
+	rejected := []string{
+		"https://attacker.example.com/dbpass",        // arbitrary host
+		"https://mykv.vault.azure.net@evil.com/x",    // userinfo redirect
+		"http://mykv.vault.azure.net/x",              // plain http
+		"https://mykv.vault.azure.net.evil.com/x",    // suffix-spoof
+		"https://mykv.vault.azure.net/a/b",           // multi-segment path
+		"mykv.evil.com/dbpass",                       // bare label rejects dots
+		"my..kv/dbpass",                              // invalid label
+		"-mykv/dbpass",                               // leading hyphen
+		"mykv-/dbpass",                               // trailing hyphen
+	}
+	for _, in := range rejected {
+		if _, _, err := splitVaultAndName(in); err == nil {
+			t.Errorf("expected rejection for %q", in)
+		}
+	}
+
+	// Sovereign cloud + managed HSM still pass.
+	for _, in := range []string{
+		"https://mykv.vault.usgovcloudapi.net/dbpass",
+		"https://mykv.managedhsm.azure.net/dbpass",
+	} {
+		if _, _, err := splitVaultAndName(in); err != nil {
+			t.Errorf("expected acceptance for %q, got %v", in, err)
+		}
+	}
+}
+
 func TestVaultURL(t *testing.T) {
 	if got := vaultURL("mykv"); got != "https://mykv.vault.azure.net" {
 		t.Fatalf("vaultURL(mykv)=%q", got)

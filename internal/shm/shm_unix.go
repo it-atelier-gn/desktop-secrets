@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 	"golang.org/x/sys/unix"
 )
 
@@ -15,13 +17,12 @@ const (
 	shmSize     = 4096
 )
 
-func shmPathUnix() string {
-	// Prefer /dev/shm (Linux); fallback to TMPDIR (macOS).
-	if _, err := os.Stat("/dev/shm"); err == nil {
-		return filepath.Join("/dev/shm", shmNameUnix)
+func shmPathUnix() (string, error) {
+	dir, err := utils.GetRuntimeDirectory()
+	if err != nil {
+		return "", err
 	}
-	tmp := os.TempDir()
-	return filepath.Join(tmp, shmNameUnix)
+	return filepath.Join(dir, shmNameUnix), nil
 }
 
 // ShmDaemonPublish creates/initializes a RAM-backed file, mmaps it RW, and writes data.
@@ -30,9 +31,13 @@ func ShmDaemonPublish(b []byte) (func(), error) {
 	if len(b) > shmSize {
 		return nil, fmt.Errorf("state too large (%d > %d)", len(b), shmSize)
 	}
-	path := shmPathUnix()
+	path, err := shmPathUnix()
+	if err != nil {
+		return nil, err
+	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	// O_NOFOLLOW: refuse to traverse a symlink at this path.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +73,11 @@ func ShmDaemonPublish(b []byte) (func(), error) {
 
 // ShmClientRead mmaps RO and returns the non-zero prefix.
 func ShmClientRead() ([]byte, error) {
-	path := shmPathUnix()
-	f, err := os.OpenFile(path, os.O_RDONLY, 0)
+	path, err := shmPathUnix()
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -93,5 +101,7 @@ func ShmClientRead() ([]byte, error) {
 
 // On Unix, removing the shared memory is removing the file (optional).
 func shmRemove() {
-	_ = os.Remove(shmPathUnix())
+	if path, err := shmPathUnix(); err == nil {
+		_ = os.Remove(path)
+	}
 }

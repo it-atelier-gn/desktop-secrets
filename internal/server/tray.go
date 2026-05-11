@@ -45,6 +45,16 @@ func RunTray(app *AppState) {
 			}
 		}
 
+		approvalItem := settingsMenu.AddSubMenuItemCheckbox(
+			"Require retrieval approval",
+			"Prompt before resolving a secret for a new client process",
+			app.RetrievalApproval.Load(),
+		)
+		forgetItem := settingsMenu.AddSubMenuItem(
+			"Forget all approvals",
+			"Revoke every active retrieval-approval grant",
+		)
+
 		systray.AddSeparator()
 		about := systray.AddMenuItem("About", "")
 
@@ -65,6 +75,25 @@ func RunTray(app *AppState) {
 		go func() {
 			for {
 				select {
+				case <-approvalItem.ClickedCh:
+					newVal := !app.RetrievalApproval.Load()
+					viper.Set("retrieval_approval", newVal)
+					if err := viper.WriteConfig(); err != nil {
+						log.Printf("Failed to save retrieval_approval setting")
+						continue
+					}
+					app.RetrievalApproval.Store(newVal)
+					if newVal {
+						approvalItem.Check()
+					} else {
+						approvalItem.Uncheck()
+					}
+
+				case <-forgetItem.ClickedCh:
+					if app.Approvals != nil {
+						app.Approvals.RevokeAll()
+					}
+
 				case <-exit.ClickedCh:
 					app.ShouldExit.Store(true)
 

@@ -59,7 +59,7 @@ func RunDaemon() {
 		log.Fatalf("failed to create daemon server: %v", err)
 	}
 	appState.Server = ds
-	port := ds.Port
+	endpoint := ds.Endpoint
 
 	serverErrCh := make(chan error, 1)
 	go func() {
@@ -67,7 +67,7 @@ func RunDaemon() {
 	}()
 
 	// Publish daemon state to shared memory and keep mapping open.
-	st := &shm.DaemonState{Port: port, Token: token, PID: os.Getpid()}
+	st := &shm.DaemonState{Endpoint: endpoint, Token: token, PID: os.Getpid()}
 	buf, _ := json.Marshal(st)
 	shmCleanup, err := shm.ShmDaemonPublish(buf)
 	if err != nil {
