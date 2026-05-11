@@ -10,6 +10,7 @@ import (
 
 	desktopsecrets "github.com/it-atelier-gn/desktop-secrets"
 	"github.com/it-atelier-gn/desktop-secrets/internal/client"
+	"github.com/it-atelier-gn/desktop-secrets/internal/env"
 	"github.com/it-atelier-gn/desktop-secrets/internal/version"
 )
 
@@ -44,5 +45,5 @@ func main() {
 		log.Fatalf("render failed: %v", err)
 	}
 
-	fmt.Print(string(out))
+	fmt.Print(string(env.ExpandClientEnvBytes(out)))
 }

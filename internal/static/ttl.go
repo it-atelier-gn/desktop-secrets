@@ -10,6 +10,12 @@ const DefaultTTL = 15
 
 const DefaultRetrievalApproval = true
 
+// DefaultAutoApproveOnUnlock controls the "skip the approval dialog
+// when an unlock prompt is going to be shown anyway" flow. Off by
+// default: requiring two consent steps the first time a process asks
+// for a secret is the safer posture, even if it's an extra click.
+const DefaultAutoApproveOnUnlock = false
+
 // ApprovalDurationUntilRestart is the sentinel for grants that last
 // for the entire daemon lifetime. Stored as the Minutes value of the
 // "Until daemon restart" option.

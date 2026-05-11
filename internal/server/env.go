@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/approval"
+	"github.com/it-atelier-gn/desktop-secrets/internal/audit"
+	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/env"
 )
 
@@ -99,20 +101,33 @@ func gateAutoApprove(ctx context.Context, app *AppState, providerKey, providerRe
 		return fn()
 	}
 	pid := ClientPIDFromContext(ctx)
+	info := clientinfo.InfoFromContext(ctx)
 	if app.Gate.IsApproved(pid, providerKey) {
+		app.Audit.LogDecision(info, audit.DecisionCached, providerKey, providerRef, "")
 		return fn()
 	}
-	if willPrompt != nil && willPrompt() {
+	if app.AutoApproveOnUnlock.Load() && willPrompt != nil && willPrompt() {
 		out, err := fn()
 		if err != nil {
+			app.Audit.LogDecision(info, audit.DecisionUnlockFailed, providerKey, providerRef, err.Error())
 			return "", err
 		}
 		app.Gate.GrantImplicit(pid, providerKey)
+		app.Audit.LogDecision(info, audit.DecisionAutoApproved, providerKey, providerRef, "")
 		return out, nil
 	}
 	if err := app.Gate.Check(pid, providerKey, providerRef, evictor); err != nil {
+		switch {
+		case err == approval.ErrDenied:
+			app.Audit.LogDecision(info, audit.DecisionDenied, providerKey, providerRef, "")
+		case err == approval.ErrForgotten:
+			app.Audit.LogDecision(info, audit.DecisionForgotten, providerKey, providerRef, "")
+		default:
+			app.Audit.LogDecision(info, audit.DecisionDenied, providerKey, providerRef, err.Error())
+		}
 		return "", err
 	}
+	app.Audit.LogDecision(info, audit.DecisionAllowed, providerKey, providerRef, "")
 	return fn()
 }
 
