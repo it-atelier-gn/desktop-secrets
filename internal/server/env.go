@@ -87,48 +87,76 @@ func gate(ctx context.Context, app *AppState, providerKey, providerRef string, e
 	return gateAutoApprove(ctx, app, providerKey, providerRef, evictor, nil, fn)
 }
 
-// gateAutoApprove is gate(...) with an extra "will-prompt" predicate.
-// When approval is enabled and no live grant exists, the predicate
-// reports whether fn() is itself going to put a password / unlock
-// dialog in front of the user. If so, the separate retrieval-approval
-// prompt is skipped — the user already has to consent to release the
-// secret by entering the password — and a successful fn() implicitly
-// records the grant. Subsequent calls (cache warm) fall back to the
-// normal approval prompt, which is the point: approve once at unlock,
-// then surface explicit approval prompts thereafter.
+// gateAutoApprove enforces retrieval-approval with one twist: when the
+// provider will itself put an unlock dialog in front of the user
+// (willPrompt() true), the unlock is shown *first* and only then is
+// the approval question asked. The thinking: the user has just typed
+// a secret-bearing password — making them subsequently click "Allow"
+// is the natural second consent step. Showing the approval dialog
+// first only to immediately follow up with a password prompt is the
+// flow users complained about.
+//
+// Behaviour matrix when retrieval-approval is enabled and no live
+// grant exists:
+//
+//   willPrompt() == true , AutoApproveOnUnlock == false:
+//       unlock dialog → approval dialog (two-step consent, default)
+//   willPrompt() == true , AutoApproveOnUnlock == true:
+//       unlock dialog → implicit grant (one consent: typing the password)
+//   willPrompt() == false (or nil):
+//       approval dialog only (no unlock to merge with)
 func gateAutoApprove(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, willPrompt func() bool, fn func() (string, error)) (string, error) {
 	if app.Gate == nil || !app.RetrievalApproval.Load() {
 		return fn()
 	}
 	pid := ClientPIDFromContext(ctx)
 	info := clientinfo.InfoFromContext(ctx)
+
 	if app.Gate.IsApproved(pid, providerKey) {
 		app.Audit.LogDecision(info, audit.DecisionCached, providerKey, providerRef, "")
 		return fn()
 	}
-	if app.AutoApproveOnUnlock.Load() && willPrompt != nil && willPrompt() {
+
+	if willPrompt != nil && willPrompt() {
+		// Step 1: unlock prompt (the provider shows it inside fn()).
 		out, err := fn()
 		if err != nil {
 			app.Audit.LogDecision(info, audit.DecisionUnlockFailed, providerKey, providerRef, err.Error())
 			return "", err
 		}
-		app.Gate.GrantImplicit(pid, providerKey)
-		app.Audit.LogDecision(info, audit.DecisionAutoApproved, providerKey, providerRef, "")
+		// Step 2: either implicit grant or explicit approval dialog.
+		if app.AutoApproveOnUnlock.Load() {
+			app.Gate.GrantImplicit(pid, providerKey)
+			app.Audit.LogDecision(info, audit.DecisionAutoApproved, providerKey, providerRef, "")
+			return out, nil
+		}
+		if err := app.Gate.Check(pid, providerKey, providerRef, evictor); err != nil {
+			logGateError(app, info, providerKey, providerRef, err)
+			return "", err
+		}
+		app.Audit.LogDecision(info, audit.DecisionAllowed, providerKey, providerRef, "")
 		return out, nil
 	}
+
+	// No unlock prompt expected (cached unlock or non-prompting
+	// provider) — go straight to the approval dialog.
 	if err := app.Gate.Check(pid, providerKey, providerRef, evictor); err != nil {
-		switch {
-		case err == approval.ErrDenied:
-			app.Audit.LogDecision(info, audit.DecisionDenied, providerKey, providerRef, "")
-		case err == approval.ErrForgotten:
-			app.Audit.LogDecision(info, audit.DecisionForgotten, providerKey, providerRef, "")
-		default:
-			app.Audit.LogDecision(info, audit.DecisionDenied, providerKey, providerRef, err.Error())
-		}
+		logGateError(app, info, providerKey, providerRef, err)
 		return "", err
 	}
 	app.Audit.LogDecision(info, audit.DecisionAllowed, providerKey, providerRef, "")
 	return fn()
+}
+
+func logGateError(app *AppState, info clientinfo.Info, providerKey, providerRef string, err error) {
+	switch {
+	case err == approval.ErrDenied:
+		app.Audit.LogDecision(info, audit.DecisionDenied, providerKey, providerRef, "")
+	case err == approval.ErrForgotten:
+		app.Audit.LogDecision(info, audit.DecisionForgotten, providerKey, providerRef, "")
+	default:
+		app.Audit.LogDecision(info, audit.DecisionDenied, providerKey, providerRef, err.Error())
+	}
 }
 
 // parseAndResolve parses a top-level expression and resolves it.
