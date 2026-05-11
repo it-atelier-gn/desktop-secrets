@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/approval"
+	"github.com/it-atelier-gn/desktop-secrets/internal/audit"
 	"github.com/it-atelier-gn/desktop-secrets/internal/aws"
 	"github.com/it-atelier-gn/desktop-secrets/internal/azkv"
 	"github.com/it-atelier-gn/desktop-secrets/internal/gcpsm"
@@ -79,11 +80,13 @@ type AppState struct {
 	KEYCHAIN          KeychainResolver
 	VAULT             VaultResolver
 	ONEPASSWORD       OnePasswordResolver
-	UnlockTTL         utils.AtomicDuration
-	ShouldExit        utils.AtomicBool
-	RetrievalApproval utils.AtomicBool
-	Approvals         *approval.Store
-	Gate              *approval.Gate
+	UnlockTTL           utils.AtomicDuration
+	ShouldExit          utils.AtomicBool
+	RetrievalApproval   utils.AtomicBool
+	AutoApproveOnUnlock utils.AtomicBool
+	Approvals           *approval.Store
+	Gate                *approval.Gate
+	Audit               *audit.Logger
 
 	Server *DaemonServer
 }
@@ -107,9 +110,16 @@ func NewAppState() *AppState {
 	}
 	a.UnlockTTL.Store(ttl)
 	a.RetrievalApproval.Store(viper.GetBool("retrieval_approval"))
+	a.AutoApproveOnUnlock.Store(viper.GetBool("auto_approve_on_unlock"))
 
 	a.USER.SetUnlockTTL(&a.UnlockTTL)
 	a.KP.SetUnlockTTL(&a.UnlockTTL)
+
+	if dir, err := utils.GetSettingsDirectory(); err == nil {
+		if l, err := audit.New(dir); err == nil {
+			a.Audit = l
+		}
+	}
 
 	return a
 }

@@ -31,6 +31,13 @@ const DurationUntilRestart time.Duration = -1
 
 type grant struct {
 	expires time.Time // zero value means "until restart"
+	// exeHash, when non-empty, pins the grant to a specific executable
+	// fingerprint captured at grant time. It is set only for
+	// executable-scoped grants. On lookup the current binary at the
+	// grant's exePath is re-hashed and compared; a mismatch invalidates
+	// the grant. This prevents a hostile replacement of the trusted
+	// binary at the same path from silently inheriting approval.
+	exeHash string
 }
 
 // pidKey is the composite identity for PID-scoped grants. Including the
@@ -72,6 +79,9 @@ func NewStore() *Store {
 // Check returns true when (pid, startTime, exePath, key) has a live grant.
 // Executable scope is tried first (broader), then process scope. PID-scoped
 // matches require both pid AND startTime to equal the grant-time values.
+// Executable-scoped grants pinned with an exeHash also require the binary
+// at exePath to still hash to the recorded fingerprint; this defeats
+// hostile replacement of a trusted binary at the same path.
 func (s *Store) Check(pid int, startTime uint64, exePath, key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,7 +93,7 @@ func (s *Store) Check(pid int, startTime uint64, exePath, key string) bool {
 
 	if exePath != "" {
 		if g, ok := kg.exes[exePath]; ok {
-			if alive(g, now) {
+			if alive(g, now) && exeHashMatches(exePath, g.exeHash) {
 				return true
 			}
 			delete(kg.exes, exePath)
@@ -120,7 +130,8 @@ func (s *Store) GrantProcess(pid int, startTime uint64, key string, d time.Durat
 }
 
 // GrantExecutable records an exe-path-scoped approval. Any future
-// process running the same path inherits this grant. d ==
+// process running the same path inherits this grant *only as long as
+// the binary at exePath still hashes to the value captured here*. d ==
 // DurationUntilRestart means no expiry.
 func (s *Store) GrantExecutable(exePath, key string, d time.Duration) {
 	s.mu.Lock()
@@ -130,7 +141,9 @@ func (s *Store) GrantExecutable(exePath, key string, d time.Duration) {
 		kg = newKeyGrants()
 		s.byKey[key] = kg
 	}
-	kg.exes[exePath] = makeGrant(d)
+	g := makeGrant(d)
+	g.exeHash, _ = computeExeHash(exePath) // best-effort; empty hash skips the pin check
+	kg.exes[exePath] = g
 }
 
 func makeGrant(d time.Duration) grant {

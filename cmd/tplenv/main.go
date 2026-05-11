@@ -83,7 +83,7 @@ func main() {
 		log.Fatalf("render failed: %v", err)
 	}
 
-	parsed := env.ParseEnvBytes(out)
+	parsed := env.ExpandClientEnv(env.ParseEnvBytes(out))
 
 	// Apply only/exclude filters
 	var onlyList, excludeList []string
