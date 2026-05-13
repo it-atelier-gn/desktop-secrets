@@ -156,6 +156,25 @@ func RunTray(app *AppState) {
 					if prev == opt.Value {
 						continue
 					}
+					// Refuse the switch when the user picks an OS factor
+					// that isn't usable on this machine (no Hello
+					// credential enrolled, policy block, etc.) — otherwise
+					// they'd only learn at the next retrieval, when every
+					// secret access starts failing.
+					if opt.Value == static.ApprovalFactorOSLocal {
+						if avail := osauth.CheckAvailability(); avail != osauth.AvailabilityAvailable {
+							showHelloUnavailableDialog(avail)
+							// Keep the previous factor checked in the UI.
+							for j, o := range static.ApprovalFactorOptions {
+								if o.Value == prev {
+									factorItems[j].Check()
+								} else {
+									factorItems[j].Uncheck()
+								}
+							}
+							continue
+						}
+					}
 					viper.Set("approval_factor_required", opt.Value)
 					if !commitPolicyChange("Confirm approval-factor change") {
 						viper.Set("approval_factor_required", prev)
@@ -197,6 +216,43 @@ func RunTray(app *AppState) {
 		}()
 	}, func() {
 		// onExit: nothing else — shared-memory cleanup happens in main.go.
+	})
+}
+
+// showHelloUnavailableDialog explains why the os_local factor cannot
+// be activated right now and points the user at the Windows setup
+// surface. Triggered from the Settings → Approval factor submenu when
+// the user picks a factor that CheckAvailability rejects.
+func showHelloUnavailableDialog(reason osauth.Availability) {
+	fyne.Do(func() {
+		w := fyne.CurrentApp().NewWindow("Windows Hello not available")
+		w.SetIcon(fyne.NewStaticResource("icon.ico", assets.IconBytes))
+		w.Resize(fyne.NewSize(520, 260))
+
+		title := widget.NewLabelWithStyle(
+			"Windows Hello can't be used yet",
+			fyne.TextAlignLeading,
+			fyne.TextStyle{Bold: true},
+		)
+		why := widget.NewLabel("Reason: " + reason.Reason())
+		why.Wrapping = fyne.TextWrapWord
+
+		help := widget.NewLabel(
+			"To enable OS authentication, open Windows Settings → Accounts → " +
+				"Sign-in options and add a Windows Hello method: a PIN, a " +
+				"fingerprint, or facial recognition. Any one is enough — pick " +
+				"whatever your device supports. Then come back here and try " +
+				"again.\n\n" +
+				"Until a method is configured, the approval factor stays on " +
+				"\"Click only\".",
+		)
+		help.Wrapping = fyne.TextWrapWord
+
+		content := container.NewVBox(title, why, widget.NewSeparator(), help)
+		d := dialog.NewCustom("Windows Hello not available", "OK", content, w)
+		d.SetOnClosed(func() { w.Close() })
+		w.Show()
+		d.Show()
 	})
 }
 

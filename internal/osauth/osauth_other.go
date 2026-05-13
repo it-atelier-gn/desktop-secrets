@@ -11,3 +11,7 @@ func Verify(reason string) (Factor, error) {
 
 // Available reports whether an OS factor is wired up on this build.
 func Available() bool { return false }
+
+// CheckAvailability always returns AvailabilityUnsupported on
+// platforms without an OS factor implementation.
+func CheckAvailability() Availability { return AvailabilityUnsupported }

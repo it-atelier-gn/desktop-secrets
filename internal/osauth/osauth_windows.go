@@ -324,21 +324,78 @@ func Verify(reason string) (Factor, error) {
 }
 
 // Available reports whether the WinRT Windows Hello surface can be
-// reached. Best-effort: we only check that combase + the
-// UserConsentVerifier factory can be loaded; an enrolled-credential
-// check would require an additional CheckAvailabilityAsync round-trip
-// and is left to first-use.
+// reached AND a credential is enrolled. Implemented as a wrapper
+// around CheckAvailability so callers don't have to special-case
+// "factory loads but no PIN enrolled" — the most common DeviceNotPresent
+// failure mode on developer machines.
 func Available() bool {
+	return CheckAvailability() == AvailabilityAvailable
+}
+
+// CheckAvailability returns the live UserConsentVerifierAvailability
+// state. Use this from settings UI to disable the os_local option
+// when the factor cannot be satisfied (no credential enrolled, policy
+// blocked, etc.) instead of letting the user pick it and only
+// discovering at retrieval time.
+func CheckAvailability() Availability {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	roInit()
+
 	factory, err := getActivationFactory(
 		"Windows.Security.Credentials.UI.UserConsentVerifier",
 		&iidUserConsentVerifierStatics,
 	)
 	if err != nil {
-		return false
+		return AvailabilityDeviceNotPresent
 	}
-	(*iUserConsentVerifierStatics)(factory).release()
-	return true
+	f := (*iUserConsentVerifierStatics)(factory)
+	defer f.release()
+
+	var op *iAsyncOperation
+	hr, _, _ := syscall.SyscallN(
+		f.Vtbl.CheckAvailabilityAsync,
+		uintptr(unsafe.Pointer(f)),
+		uintptr(unsafe.Pointer(&op)),
+	)
+	if hr != 0 || op == nil {
+		return AvailabilityDeviceNotPresent
+	}
+	defer op.release()
+
+	info, err := op.queryAsyncInfo()
+	if err != nil {
+		return AvailabilityDeviceNotPresent
+	}
+	defer info.release()
+
+	// CheckAvailabilityAsync completes synchronously in practice — it
+	// reads cached enrollment state — but the contract is async, so
+	// poll briefly with a short cap. 5s is generous for a state read.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s, err := info.status()
+		if err != nil {
+			return AvailabilityDeviceNotPresent
+		}
+		if s != asyncStatusStarted {
+			if s != asyncStatusCompleted {
+				info.close()
+				return AvailabilityDeviceNotPresent
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			info.close()
+			return AvailabilityDeviceNotPresent
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	res, err := op.getResults()
+	info.close()
+	if err != nil {
+		return AvailabilityDeviceNotPresent
+	}
+	return Availability(res)
 }
