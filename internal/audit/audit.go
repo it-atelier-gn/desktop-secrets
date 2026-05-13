@@ -26,12 +26,19 @@ const (
 	DecisionDenied        Decision = "denied"         // user clicked Deny / closed the approval dialog
 	DecisionForgotten     Decision = "forgotten"      // user clicked Forget on the approval dialog
 	DecisionUnlockFailed  Decision = "unlock_failed"  // password / master-password prompt errored out
+	DecisionOSAuthFailed  Decision = "os_auth_failed" // user clicked Allow but the OS factor (Hello / etc.) did not verify
 )
 
 // Record is one audit-log entry, serialised as a single JSON line.
+//
+// Factor identifies which authentication surface produced the grant
+// (`click`, `os_local`, ...). Set on allowed / auto_approved /
+// cached records so a reviewer can distinguish "user clicked Allow"
+// from "user passed Windows Hello". Empty on denial records.
 type Record struct {
 	Time        time.Time `json:"time"`
 	Decision    Decision  `json:"decision"`
+	Factor      string    `json:"factor,omitempty"`
 	ProviderKey string    `json:"provider_key"`
 	ProviderRef string    `json:"provider_ref"`
 	PID         int       `json:"pid"`
@@ -92,8 +99,16 @@ func (l *Logger) Log(rec Record) {
 // fields from an InfoFromContext-style clientinfo.Info and writes the
 // record.
 func (l *Logger) LogDecision(info clientinfo.Info, decision Decision, providerKey, providerRef, errMsg string) {
+	l.LogDecisionWithFactor(info, decision, "", providerKey, providerRef, errMsg)
+}
+
+// LogDecisionWithFactor writes a decision and records which
+// authentication factor produced the grant. Use for allowed /
+// auto_approved / cached records; for denials pass factor="".
+func (l *Logger) LogDecisionWithFactor(info clientinfo.Info, decision Decision, factor, providerKey, providerRef, errMsg string) {
 	l.Log(Record{
 		Decision:    decision,
+		Factor:      factor,
 		ProviderKey: providerKey,
 		ProviderRef: providerRef,
 		PID:         info.PID,

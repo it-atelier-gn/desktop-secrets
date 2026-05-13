@@ -11,6 +11,8 @@ import (
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/config"
 	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
+	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
+	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
@@ -25,6 +27,26 @@ func RunDaemon() {
 	// Initialize configuration.
 	if err := config.InitConfig(); err != nil {
 		log.Fatalf("Failed to initialize config: %v", err)
+	}
+
+	// Reconcile the security-policy block against the OS-protected
+	// keystore. A weaker on-disk policy (e.g. someone edited
+	// config.yaml to flip retrieval_approval off) is reverted unless
+	// the user passes the current OS factor.
+	if store, err := policy.DefaultStore(); err == nil {
+		outcome, applied, err := policy.Reconcile(store, func(reason string) (osauth.Factor, error) {
+			return osauth.Verify(reason)
+		})
+		switch {
+		case err == policy.ErrDowngradeRejected:
+			log.Printf("policy: on-disk downgrade rejected; reverted to keystore policy %+v", applied)
+		case err != nil:
+			log.Printf("policy: reconcile failed: %v", err)
+		default:
+			log.Printf("policy: reconcile outcome=%d applied=%+v", outcome, applied)
+		}
+	} else {
+		log.Printf("policy: keystore unavailable, skipping reconcile: %v", err)
 	}
 
 	// Single instance guard for the daemon only.

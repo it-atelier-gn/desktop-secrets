@@ -138,21 +138,23 @@ func gateAutoApprove(ctx context.Context, app *AppState, providerKey, providerRe
 			app.Audit.LogDecision(info, audit.DecisionAutoApproved, providerKey, providerRef, "")
 			return out, nil
 		}
-		if err := app.Gate.Check(pid, providerKey, providerRef, evictor); err != nil {
+		factor, err := app.Gate.Check(pid, providerKey, providerRef, evictor)
+		if err != nil {
 			logGateError(app, info, providerKey, providerRef, err)
 			return "", err
 		}
-		app.Audit.LogDecision(info, audit.DecisionAllowed, providerKey, providerRef, "")
+		app.Audit.LogDecisionWithFactor(info, audit.DecisionAllowed, factor, providerKey, providerRef, "")
 		return out, nil
 	}
 
 	// No unlock prompt expected (cached unlock or non-prompting
 	// provider) — go straight to the approval dialog.
-	if err := app.Gate.Check(pid, providerKey, providerRef, evictor); err != nil {
+	factor, err := app.Gate.Check(pid, providerKey, providerRef, evictor)
+	if err != nil {
 		logGateError(app, info, providerKey, providerRef, err)
 		return "", err
 	}
-	app.Audit.LogDecision(info, audit.DecisionAllowed, providerKey, providerRef, "")
+	app.Audit.LogDecisionWithFactor(info, audit.DecisionAllowed, factor, providerKey, providerRef, "")
 	return fn()
 }
 
@@ -162,6 +164,8 @@ func logGateError(app *AppState, info clientinfo.Info, providerKey, providerRef 
 		app.Audit.LogDecision(info, audit.DecisionDenied, providerKey, providerRef, "")
 	case err == approval.ErrForgotten:
 		app.Audit.LogDecision(info, audit.DecisionForgotten, providerKey, providerRef, "")
+	case err == approval.ErrOSAuthFailed:
+		app.Audit.LogDecision(info, audit.DecisionOSAuthFailed, providerKey, providerRef, "")
 	default:
 		app.Audit.LogDecision(info, audit.DecisionDenied, providerKey, providerRef, err.Error())
 	}

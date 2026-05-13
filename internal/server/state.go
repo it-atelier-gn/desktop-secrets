@@ -7,6 +7,7 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/approval"
 	"github.com/it-atelier-gn/desktop-secrets/internal/audit"
 	"github.com/it-atelier-gn/desktop-secrets/internal/aws"
+	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
 	"github.com/it-atelier-gn/desktop-secrets/internal/azkv"
 	"github.com/it-atelier-gn/desktop-secrets/internal/gcpsm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
@@ -106,7 +107,10 @@ func NewAppState() *AppState {
 		ONEPASSWORD: onepassword.NewManager(ttl),
 		UnlockTTL:   utils.AtomicDuration{},
 		Approvals:   store,
-		Gate:        approval.NewGate(store, nil),
+		Gate: approval.NewGateWithVerifier(store, nil,
+			func(reason string) (osauth.Factor, error) { return osauth.Verify(reason) },
+			func() string { return viper.GetString("approval_factor_required") },
+		),
 	}
 	a.UnlockTTL.Store(ttl)
 	a.RetrievalApproval.Store(viper.GetBool("retrieval_approval"))
