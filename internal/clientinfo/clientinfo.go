@@ -40,17 +40,6 @@ type Info struct {
 	StartTime  uint64
 }
 
-// Display returns a one-line label for the dialog.
-func (i Info) Display() string {
-	if i.ExePath != "" {
-		return fmt.Sprintf("PID %d — %s", i.PID, i.ExePath)
-	}
-	if i.Name != "" {
-		return fmt.Sprintf("PID %d — %s", i.PID, i.Name)
-	}
-	return fmt.Sprintf("PID %d — unknown process", i.PID)
-}
-
 // Short returns just the executable path (or basename when only the
 // image name is known), suitable for use as a primary label that
 // reveals fuller details on hover.
