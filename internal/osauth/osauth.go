@@ -35,3 +35,50 @@ var ErrUnsupported = errors.New("osauth: not implemented on this platform")
 // ErrCanceled is returned when the OS prompt is dismissed without a
 // successful verification (user cancel, timeout, retries exhausted).
 var ErrCanceled = errors.New("osauth: user canceled or did not verify")
+
+// Availability mirrors the Windows UserConsentVerifierAvailability
+// enum. The values are stable; on non-Windows platforms only
+// AvailabilityUnsupported is returned.
+type Availability int
+
+const (
+	// AvailabilityAvailable: at least one Windows Hello credential
+	// (PIN, fingerprint, or face) is enrolled and ready.
+	AvailabilityAvailable Availability = 0
+	// AvailabilityDeviceNotPresent: no Hello-capable device on the
+	// machine (also returned when no PIN credential is enrolled).
+	AvailabilityDeviceNotPresent Availability = 1
+	// AvailabilityNotConfiguredForUser: the device supports Hello but
+	// the current user has not enrolled any credential.
+	AvailabilityNotConfiguredForUser Availability = 2
+	// AvailabilityDisabledByPolicy: group policy or MDM has blocked
+	// Hello on this device.
+	AvailabilityDisabledByPolicy Availability = 3
+	// AvailabilityDeviceBusy: another consumer is currently using the
+	// biometric device.
+	AvailabilityDeviceBusy Availability = 4
+	// AvailabilityUnsupported: this platform has no OS factor wired
+	// up. Returned by CheckAvailability on non-Windows builds.
+	AvailabilityUnsupported Availability = -1
+)
+
+// Reason returns a short human-readable label describing why the
+// factor is unavailable. Empty for AvailabilityAvailable.
+func (a Availability) Reason() string {
+	switch a {
+	case AvailabilityAvailable:
+		return ""
+	case AvailabilityDeviceNotPresent:
+		return "no Windows Hello credential is enrolled on this device"
+	case AvailabilityNotConfiguredForUser:
+		return "Windows Hello is not configured for this user account"
+	case AvailabilityDisabledByPolicy:
+		return "Windows Hello is disabled by group policy"
+	case AvailabilityDeviceBusy:
+		return "the Windows Hello device is currently busy"
+	case AvailabilityUnsupported:
+		return "no OS-level authentication factor is available on this platform"
+	default:
+		return "Windows Hello is not available"
+	}
+}
