@@ -81,12 +81,15 @@ const (
 
 // ApprovalRequest describes the secret retrieval that needs user
 // consent. ProviderRef is shown verbatim in the dialog (e.g.
-// "keepass(vault.kdbx | github/token)"). ClientDisplay is the
-// formatted process info; ExePath is the executable path (if known).
-// When ExePath is empty, the "Allow this executable" row is disabled.
+// "keepass(vault.kdbx | github/token)"). ClientDisplay is the short
+// process label (executable path or image name); ClientDetails is
+// the multi-line tooltip revealed on hover — same overlay treatment
+// as the unlock prompts. ExePath is the executable path (if known);
+// when empty, the "Allow this executable" row is disabled.
 type ApprovalRequest struct {
 	ProviderRef      string
 	ClientDisplay    string
+	ClientDetails    string
 	ExePath          string
 	HasExistingGrant bool
 }
@@ -170,8 +173,18 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 	procDurationSelect, durationMap := buildApprovalDurationSelect()
 	exeDurationSelect, _ := buildApprovalDurationSelect()
 
-	processLbl := widget.NewLabel(sanitizeForDisplay(req.ClientDisplay, maxClientDisplayLen))
-	processLbl.Wrapping = fyne.TextWrapWord
+	var processWidget fyne.CanvasObject
+	if req.ClientDetails != "" {
+		processWidget = newHoverLabel(
+			sanitizeForDisplay(req.ClientDisplay, maxClientDisplayLen),
+			sanitizeTooltip(req.ClientDetails),
+			w,
+		)
+	} else {
+		processLbl := widget.NewLabel(sanitizeForDisplay(req.ClientDisplay, maxClientDisplayLen))
+		processLbl.Wrapping = fyne.TextWrapWord
+		processWidget = processLbl
+	}
 	refLbl := widget.NewLabel(sanitizeForDisplay(req.ProviderRef, maxProviderRefDisplay))
 	refLbl.Wrapping = fyne.TextWrapWord
 	refLbl.TextStyle = fyne.TextStyle{Monospace: true}
@@ -179,7 +192,7 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 	header := container.NewVBox(
 		widget.NewLabelWithStyle("Allow secret access?", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabel("Process:"),
-		processLbl,
+		processWidget,
 		widget.NewLabel("Secret reference:"),
 		refLbl,
 	)

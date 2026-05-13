@@ -109,7 +109,8 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 
 	req := prompt.ApprovalRequest{
 		ProviderRef:      providerRef,
-		ClientDisplay:    info.Display(),
+		ClientDisplay:    info.Short(),
+		ClientDetails:    info.Tooltip(),
 		ExePath:          exePath,
 		HasExistingGrant: g.store.HasAny(providerKey),
 	}
