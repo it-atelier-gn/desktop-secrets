@@ -5,6 +5,12 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/it-atelier-gn/desktop-secrets)
 
+<p align="center">
+  <a href="https://discord.gg/b4XNZkaG">
+    <img src="https://img.shields.io/badge/Join%20the%20DesktopSecrets%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the DesktopSecrets Discord" height="40">
+  </a>
+</p>
+
 DesktopSecrets is a utility that allows you to remove secrets from your filesystem by transforming them to *Secret References*. It integrates with KeePass, AWS Secrets Manager, AWS Parameter Store, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, 1Password, Windows Credential Manager, macOS Keychain, and local user-provided prompts to make retrieving credentials simple, scriptable, and safe, while minimizing repeated password prompts through configurable caching. 
 
 ---
@@ -399,7 +405,62 @@ Chaining works with all lookup modes, including wildcards and aliases.
 
 ## Configuration
 
-Settings are accessible via the taskbar icon.
+Right-click the taskbar icon and choose **Settings…** to open the configuration window. The window covers:
+
+- **Retrieval approval mode** — what the lite build offers depends on which build you installed (see below).
+- **Default unlock TTL** — how long a vault stays unlocked after a successful password prompt.
+- **Forget all approvals** — revoke every active retrieval-approval grant in one click.
+
+### Build variants
+
+DesktopSecrets ships in two build variants. They are produced from the same source via a Go build tag; pick the one that matches your threat model.
+
+#### Lite (default download)
+
+- Default approval mode is **Off** — no prompt, the daemon hands out secrets to any local process that can reach it once the source vault is unlocked.
+- Settings UI exposes two modes: **Off** and **Standard** (an Allow/Deny dialog per retrieval).
+- Refuses to start on a machine that has previously run the hardened build (see *Tamper detection* below).
+- Build: `go build -o getsec.exe ./cmd/getsec` (no tag).
+
+The lite build is appropriate when:
+- you are the only thing running as your user, or
+- you trust every process running as you not to call the daemon, or
+- you want the convenience of no prompts during heavy script runs.
+
+The lite build is **not** appropriate against local agents or supply-chain compromise — anything running as you can ask the daemon for secrets.
+
+#### Hardened (`-tags hardened`)
+
+- Only mode available: every retrieval requires an OS-rendered authentication gesture (Windows Hello PIN/fingerprint/face or a hardware security key).
+- The approval mode cannot be lowered from the UI; weakening requires uninstalling and switching to the lite build.
+- **Enrollment on first start:** the daemon registers a WebAuthn credential against `desktop-secrets.local` and stores the resulting credential ID + public key in `%APPDATA%\desktop-secrets\webauthn.cred` (DPAPI-encrypted, per-user). Windows shows its native dialog where you pick the authenticator — Hello PIN/biometric or a hardware key works. If you cancel, the daemon refuses to start.
+- **Per-retrieval check:** every Allow click in the approval dialog runs WebAuthn `GetAssertion` against that stored credential. The same native dialog appears, accepting either Hello or your security key — whichever you used to enrol.
+- On first successful authentication on a given machine, writes a per-user DPAPI-encrypted **hardened marker** at `%APPDATA%\desktop-secrets\hardened.marker`.
+- Build: `go build -tags hardened -o getsec.exe ./cmd/getsec`.
+
+To re-enrol (lost key, new authenticator), delete `webauthn.cred` and restart the daemon.
+
+The hardened build defends against:
+- background processes calling the daemon (no UI loop = no Hello gesture),
+- local agents that can synthesise mouse clicks but cannot replay a Hello gesture or press a hardware key.
+
+It does **not** defend against:
+- an attacker with code execution as you replacing the binary on disk (pixel-perfect clone),
+- malware that hooks the OS authentication API before it is invoked.
+
+### Tamper detection
+
+The hardened marker is the lite build's signal that "Advanced was used here before." If you install the hardened build and authenticate at least once, then later replace the binary with the lite build, the lite build refuses to start with a message pointing at `--allow-downgrade`.
+
+To intentionally downgrade from hardened to lite:
+
+```pwsh
+getsec --allow-downgrade
+```
+
+This prompts for a `yes` confirmation, then deletes the marker. The lite build will start normally on the next invocation.
+
+The marker is a per-user DPAPI blob — an attacker running as you can delete it. The marker turns silent binary-swap into a visible config-state change; it does not make downgrade impossible.
 
 ### Default Configuration Locations
 
@@ -426,8 +487,12 @@ Settings are accessible via the taskbar icon.
 Windows:
 
 ```pwsh
+# Lite build (default — Off / Standard modes, weaker)
 go build -o tplenv.exe ./cmd/tplenv
 go build -o getsec.exe ./cmd/getsec
+
+# Hardened build (Windows Hello / hardware key required for every retrieval)
+go build -tags hardened -o getsec.exe ./cmd/getsec
 ```
 
 Linux:
@@ -436,6 +501,30 @@ Linux:
 go build -o tplenv ./cmd/tplenv
 go build -o getsec ./cmd/getsec
 ```
+
+> The hardened build is currently Windows-only — on other platforms it
+> compiles but the OS-factor check at startup will refuse to run.
+
+### Tests
+
+Three test scopes can be combined via build tags:
+
+```pwsh
+# Default — fast unit tests, lite build
+go test ./...
+
+# Hardened-build unit tests (gate routes to WebAuthn, marker write contract)
+go test -tags hardened ./...
+
+# Integration tests — build the lite binary into a tempdir, then exercise
+# `--allow-downgrade` and the marker-refusal startup path. Slower (~20s).
+go test -tags integration ./...
+
+# Everything in one run
+go test -tags "hardened integration" ./...
+```
+
+The hardened end-to-end path (WebAuthn enrollment + per-retrieval gesture) is **not** covered by automation because no headless way to satisfy a real authenticator exists. Smoke-test that manually after any change to the WebAuthn or enrollment code.
 
 ### Usage as library
 ```
