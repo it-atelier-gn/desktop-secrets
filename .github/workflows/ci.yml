@@ -12,17 +12,19 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.os }}-${{ matrix.goarch }} (${{ matrix.package }})
+    name: Build ${{ matrix.os }}-${{ matrix.goarch }} (${{ matrix.package }}, ${{ matrix.variant }})
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
-          # Windows amd64
+          # Windows amd64 — lite
           - os: windows
             runner: windows-latest
             goarch: amd64
             package: ./cmd/tplenv
             output: tplenv.exe
+            variant: lite
+            build_tags: ''
             artifact_name: tplenv-windows-amd64
 
           - os: windows
@@ -30,14 +32,37 @@ jobs:
             goarch: amd64
             package: ./cmd/getsec
             output: getsec.exe
+            variant: lite
+            build_tags: ''
             artifact_name: getsec-windows-amd64
 
-          # Linux amd64
+          # Windows amd64 — hardened
+          - os: windows
+            runner: windows-latest
+            goarch: amd64
+            package: ./cmd/tplenv
+            output: tplenv.exe
+            variant: hardened
+            build_tags: hardened
+            artifact_name: tplenv-windows-amd64-hardened
+
+          - os: windows
+            runner: windows-latest
+            goarch: amd64
+            package: ./cmd/getsec
+            output: getsec.exe
+            variant: hardened
+            build_tags: hardened
+            artifact_name: getsec-windows-amd64-hardened
+
+          # Linux amd64 — lite
           - os: linux
             runner: ubuntu-latest
             goarch: amd64
             package: ./cmd/tplenv
             output: tplenv
+            variant: lite
+            build_tags: ''
             artifact_name: tplenv-linux-amd64
 
           - os: linux
@@ -45,7 +70,28 @@ jobs:
             goarch: amd64
             package: ./cmd/getsec
             output: getsec
+            variant: lite
+            build_tags: ''
             artifact_name: getsec-linux-amd64
+
+          # Linux amd64 — hardened
+          - os: linux
+            runner: ubuntu-latest
+            goarch: amd64
+            package: ./cmd/tplenv
+            output: tplenv
+            variant: hardened
+            build_tags: hardened
+            artifact_name: tplenv-linux-amd64-hardened
+
+          - os: linux
+            runner: ubuntu-latest
+            goarch: amd64
+            package: ./cmd/getsec
+            output: getsec
+            variant: hardened
+            build_tags: hardened
+            artifact_name: getsec-linux-amd64-hardened
 
     steps:
       - uses: actions/checkout@v4
@@ -75,12 +121,12 @@ jobs:
             libgl1-mesa-dev
 
 
-      - name: Build ${{ matrix.os }}-${{ matrix.goarch }}
+      - name: Build ${{ matrix.os }}-${{ matrix.goarch }} (${{ matrix.variant }})
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -ldflags "-X github.com/it-atelier-gn/desktop-secrets/internal/version.Version=${{ steps.version.outputs.version }} -X github.com/it-atelier-gn/desktop-secrets/internal/version.Revision=${{ github.sha }}" -o ${{ matrix.output }} ${{ matrix.package }}
+          go build ${{ matrix.build_tags != '' && format('-tags {0}', matrix.build_tags) || '' }} -ldflags "-X github.com/it-atelier-gn/desktop-secrets/internal/version.Version=${{ steps.version.outputs.version }} -X github.com/it-atelier-gn/desktop-secrets/internal/version.Revision=${{ github.sha }}" -o ${{ matrix.output }} ${{ matrix.package }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -111,10 +157,15 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          cp getsec-linux-amd64/getsec release/getsec-${{ steps.version.outputs.version }}-linux-amd64
-          cp getsec-windows-amd64/getsec.exe release/getsec-${{ steps.version.outputs.version }}-windows-amd64.exe
-          cp tplenv-linux-amd64/tplenv release/tplenv-${{ steps.version.outputs.version }}-linux-amd64
-          cp tplenv-windows-amd64/tplenv.exe release/tplenv-${{ steps.version.outputs.version }}-windows-amd64.exe
+          V=${{ steps.version.outputs.version }}
+          cp getsec-linux-amd64/getsec            release/getsec-$V-linux-amd64
+          cp getsec-linux-amd64-hardened/getsec   release/getsec-$V-linux-amd64-hardened
+          cp getsec-windows-amd64/getsec.exe      release/getsec-$V-windows-amd64.exe
+          cp getsec-windows-amd64-hardened/getsec.exe release/getsec-$V-windows-amd64-hardened.exe
+          cp tplenv-linux-amd64/tplenv            release/tplenv-$V-linux-amd64
+          cp tplenv-linux-amd64-hardened/tplenv   release/tplenv-$V-linux-amd64-hardened
+          cp tplenv-windows-amd64/tplenv.exe      release/tplenv-$V-windows-amd64.exe
+          cp tplenv-windows-amd64-hardened/tplenv.exe release/tplenv-$V-windows-amd64-hardened.exe
 
       - name: Generate SHA256 checksums
         run: |

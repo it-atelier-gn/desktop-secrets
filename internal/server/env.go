@@ -114,11 +114,27 @@ func gate(ctx context.Context, app *AppState, providerKey, providerRef string, e
 //   willPrompt() == false (or nil):
 //       approval dialog only (no unlock to merge with)
 func gateAutoApprove(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, willPrompt func() bool, fn func() (string, error)) (string, error) {
-	if app.Gate == nil || !app.RetrievalApproval.Load() {
+	if app.Gate == nil {
 		return fn()
 	}
 	pid := ClientPIDFromContext(ctx)
 	info := clientinfo.InfoFromContext(ctx)
+
+	if !app.RetrievalApproval.Load() {
+		out, err := fn()
+		if err != nil {
+			return "", err
+		}
+		if app.RetrievalApproval.Load() && !app.Gate.IsApproved(pid, providerKey) {
+			factor, gErr := app.Gate.Check(pid, providerKey, providerRef, evictor)
+			if gErr != nil {
+				logGateError(app, info, providerKey, providerRef, gErr)
+				return "", gErr
+			}
+			app.Audit.LogDecisionWithFactor(info, audit.DecisionAllowed, factor, providerKey, providerRef, "")
+		}
+		return out, nil
+	}
 
 	if app.Gate.IsApproved(pid, providerKey) {
 		app.Audit.LogDecision(info, audit.DecisionCached, providerKey, providerRef, "")

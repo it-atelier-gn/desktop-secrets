@@ -7,12 +7,12 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/approval"
 	"github.com/it-atelier-gn/desktop-secrets/internal/audit"
 	"github.com/it-atelier-gn/desktop-secrets/internal/aws"
-	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
 	"github.com/it-atelier-gn/desktop-secrets/internal/azkv"
 	"github.com/it-atelier-gn/desktop-secrets/internal/gcpsm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keychain"
 	"github.com/it-atelier-gn/desktop-secrets/internal/onepassword"
+	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/user"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 	"github.com/it-atelier-gn/desktop-secrets/internal/vault"
@@ -108,7 +108,7 @@ func NewAppState() *AppState {
 		UnlockTTL:   utils.AtomicDuration{},
 		Approvals:   store,
 		Gate: approval.NewGateWithVerifier(store, nil,
-			func(reason string) (osauth.Factor, error) { return osauth.Verify(reason) },
+			buildVerifier(),
 			func() string { return viper.GetString("approval_factor_required") },
 		),
 	}
@@ -118,6 +118,15 @@ func NewAppState() *AppState {
 
 	a.USER.SetUnlockTTL(&a.UnlockTTL)
 	a.KP.SetUnlockTTL(&a.UnlockTTL)
+
+	prompt.ApprovalGrantProvider = func() int { return viper.GetInt("approval_grant_minutes") }
+	prompt.ApprovalGrantPersister = func(m int) {
+		if viper.GetInt("approval_grant_minutes") == m {
+			return
+		}
+		viper.Set("approval_grant_minutes", m)
+		_ = viper.WriteConfig()
+	}
 
 	if dir, err := utils.GetSettingsDirectory(); err == nil {
 		if l, err := audit.New(dir); err == nil {

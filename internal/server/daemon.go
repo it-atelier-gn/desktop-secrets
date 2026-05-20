@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/buildmode"
 	"github.com/it-atelier-gn/desktop-secrets/internal/config"
 	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
@@ -20,19 +21,22 @@ import (
 )
 
 func RunDaemon() {
-	// Suppress crash dialogs / minidumps so secrets in memory cannot leak
-	// to disk via Windows Error Reporting or a Unix core file.
 	memprotect.DisableErrorReporting()
 
-	// Initialize configuration.
 	if err := config.InitConfig(); err != nil {
 		log.Fatalf("Failed to initialize config: %v", err)
 	}
 
-	// Reconcile the security-policy block against the OS-protected
-	// keystore. A weaker on-disk policy (e.g. someone edited
-	// config.yaml to flip retrieval_approval off) is reverted unless
-	// the user passes the current OS factor.
+	if buildmode.Hardened {
+		if err := ensureHardenedEnrollment(); err != nil {
+			log.Fatalf("hardened build refuses to start: %v", err)
+		}
+	} else {
+		if exists, _ := policy.MarkerExists(); exists {
+			log.Fatalf("hardened-build marker present on this machine. Refusing to start the lite build. To intentionally downgrade run `getsec --allow-downgrade` once.")
+		}
+	}
+
 	if store, err := policy.DefaultStore(); err == nil {
 		outcome, applied, err := policy.Reconcile(store, func(reason string) (osauth.Factor, error) {
 			return osauth.Verify(reason)

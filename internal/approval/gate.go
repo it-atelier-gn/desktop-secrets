@@ -1,11 +1,14 @@
 package approval
 
 import (
+	"log"
 	"sync"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/buildmode"
 	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
+	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 )
@@ -90,10 +93,9 @@ func (g *Gate) lockFor(key string) *sync.Mutex {
 // the user clicked Allow but the OS prompt did not verify.
 func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) (string, error) {
 	info := clientinfo.Lookup(pid)
-	exePath := info.ExePath
-	startTime := info.StartTime
+	grantPID, grantStartTime := effectiveGrantTarget(pid, info)
 
-	if g.store.Check(pid, startTime, exePath, providerKey) {
+	if g.store.Check(grantPID, grantStartTime, providerKey) {
 		return "", nil
 	}
 
@@ -101,9 +103,7 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Re-check after acquiring the lock — another goroutine may have
-	// just been granted approval for the same key.
-	if g.store.Check(pid, startTime, exePath, providerKey) {
+	if g.store.Check(grantPID, grantStartTime, providerKey) {
 		return "", nil
 	}
 
@@ -111,7 +111,8 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 		ProviderRef:      providerRef,
 		ClientDisplay:    info.Short(),
 		ClientDetails:    info.Tooltip(),
-		ExePath:          exePath,
+		ParentDisplay:    info.ParentShort(),
+		ParentDetails:    info.ParentTooltip(),
 		HasExistingGrant: g.store.HasAny(providerKey),
 	}
 	decision, err := g.prompter(req)
@@ -129,9 +130,6 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 		return "", ErrDenied
 	}
 
-	// Optional second factor: an OS-rendered prompt that user-space
-	// input can't reach (Windows Hello). Only invoked when the user
-	// has opted in via the `approval_factor_required` setting.
 	factor := string(osauth.FactorClick)
 	if g.factorRequired != nil && g.verifier != nil {
 		switch g.factorRequired() {
@@ -139,25 +137,34 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 			f, vErr := g.verifier("Allow " + providerRef)
 			if vErr != nil {
 				if vErr == osauth.ErrUnsupported {
-					// Platform doesn't have a factor wired up yet —
-					// fall through to a click-only grant. We don't
-					// want to break Linux/macOS users while the
-					// other factors are in flight.
 					break
 				}
 				return "", ErrOSAuthFailed
 			}
 			factor = string(f)
+			if buildmode.Hardened {
+				if err := policy.WriteMarker(); err != nil {
+					log.Printf("policy: failed to write hardened marker: %v", err)
+				}
+			}
 		}
 	}
 
-	d := durationFromMinutes(decision.DurationMinutes)
-	if decision.Scope == prompt.ApprovalScopeExecutable && exePath != "" {
-		g.store.GrantExecutable(exePath, providerKey, d)
-	} else {
-		g.store.GrantProcess(pid, startTime, providerKey, d)
+	if decision.DurationMinutes != static.ApprovalDurationOnce {
+		d := durationFromMinutes(decision.DurationMinutes)
+		g.store.GrantProcess(grantPID, grantStartTime, providerKey, d)
 	}
 	return factor, nil
+}
+
+func effectiveGrantTarget(pid int, info clientinfo.Info) (grantPID int, grantStartTime uint64) {
+	if info.IsDesktopSecretsCLI() && info.ParentPID != 0 {
+		parent := clientinfo.Lookup(info.ParentPID)
+		if parent.PID != 0 {
+			return parent.PID, parent.StartTime
+		}
+	}
+	return pid, info.StartTime
 }
 
 // Store exposes the underlying store for tray-side controls (e.g.
@@ -170,7 +177,8 @@ func (g *Gate) Store() *Store {
 // Resolves clientinfo internally so callers don't need to.
 func (g *Gate) IsApproved(pid int, providerKey string) bool {
 	info := clientinfo.Lookup(pid)
-	return g.store.Check(pid, info.StartTime, info.ExePath, providerKey)
+	gPID, gST := effectiveGrantTarget(pid, info)
+	return g.store.Check(gPID, gST, providerKey)
 }
 
 // GrantImplicit records a process-scoped grant without prompting the
@@ -182,7 +190,8 @@ func (g *Gate) IsApproved(pid int, providerKey string) bool {
 // the user explicitly forgets.
 func (g *Gate) GrantImplicit(pid int, providerKey string) {
 	info := clientinfo.Lookup(pid)
-	g.store.GrantProcess(pid, info.StartTime, providerKey, DurationUntilRestart)
+	gPID, gST := effectiveGrantTarget(pid, info)
+	g.store.GrantProcess(gPID, gST, providerKey, DurationUntilRestart)
 }
 
 func durationFromMinutes(m int) time.Duration {

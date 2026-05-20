@@ -320,6 +320,8 @@ func (m *KPManager) getOrOpenVault(ctx context.Context, key, path, master string
 	if info := clientinfo.InfoFromContext(ctx); info.PID != 0 || info.ExePath != "" || info.Name != "" {
 		keepOpts.ClientDisplay = info.Short()
 		keepOpts.ClientDetails = info.Tooltip()
+		keepOpts.ParentDisplay = info.ParentShort()
+		keepOpts.ParentDetails = info.ParentTooltip()
 	}
 
 	result, err := prompt.PromptForPassword("KeePass", prompt.StyleKeePass, keepOpts, nil)
