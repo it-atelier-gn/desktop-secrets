@@ -5,9 +5,25 @@ package clientinfo
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 )
+
+func (i Info) IsDesktopSecretsCLI() bool {
+	candidates := []string{i.ExePath, i.Name}
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		base := strings.ToLower(filepath.Base(c))
+		base = strings.TrimSuffix(base, ".exe")
+		if base == "getsec" || base == "tplenv" {
+			return true
+		}
+	}
+	return false
+}
 
 type ctxKey struct{}
 
@@ -35,9 +51,46 @@ type Info struct {
 	Cwd        string // working directory; empty when unavailable
 	Cmdline    string // full command line; empty when unavailable
 	Username   string // OS account running the process; empty when unavailable
-	ParentPID  int
-	ParentName string
-	StartTime  uint64
+	ParentPID      int
+	ParentName     string
+	ParentExePath  string
+	ParentCmdline  string
+	ParentUsername string
+	StartTime      uint64
+}
+
+func (i Info) ParentShort() string {
+	if i.ParentExePath != "" {
+		return i.ParentExePath
+	}
+	if i.ParentName != "" {
+		return i.ParentName
+	}
+	if i.ParentPID != 0 {
+		return fmt.Sprintf("PID %d", i.ParentPID)
+	}
+	return "unknown parent"
+}
+
+func (i Info) ParentTooltip() string {
+	if i.ParentPID == 0 {
+		return ""
+	}
+	var lines []string
+	lines = append(lines, fmt.Sprintf("PID: %d", i.ParentPID))
+	if i.ParentName != "" {
+		lines = append(lines, "Name: "+i.ParentName)
+	}
+	if i.ParentUsername != "" {
+		lines = append(lines, "User: "+i.ParentUsername)
+	}
+	if i.ParentCmdline != "" {
+		lines = append(lines, "Cmdline: "+i.ParentCmdline)
+	}
+	if i.ParentExePath != "" {
+		lines = append(lines, "Exe: "+i.ParentExePath)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Short returns just the executable path (or basename when only the

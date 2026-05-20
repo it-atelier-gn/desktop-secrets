@@ -71,6 +71,8 @@ func (m *UserManager) ResolvePassword(ctx context.Context, title string, ttl tim
 	if info := clientinfo.InfoFromContext(ctx); info.PID != 0 || info.ExePath != "" || info.Name != "" {
 		userOpts.ClientDisplay = info.Short()
 		userOpts.ClientDetails = info.Tooltip()
+		userOpts.ParentDisplay = info.ParentShort()
+		userOpts.ParentDetails = info.ParentTooltip()
 	}
 
 	result, err := prompt.PromptForPassword("User", prompt.StyleUser, nil, userOpts)

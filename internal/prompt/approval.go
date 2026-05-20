@@ -2,7 +2,9 @@ package prompt
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/it-atelier-gn/desktop-secrets/assets"
@@ -14,6 +16,40 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
+
+var (
+	pendingMu        sync.Mutex
+	pendingNextID    uint64
+	pendingHandlers  = map[uint64]func(){}
+)
+
+func registerPendingApproval(autoAllow func()) uint64 {
+	pendingMu.Lock()
+	defer pendingMu.Unlock()
+	pendingNextID++
+	id := pendingNextID
+	pendingHandlers[id] = autoAllow
+	return id
+}
+
+func unregisterPendingApproval(id uint64) {
+	pendingMu.Lock()
+	defer pendingMu.Unlock()
+	delete(pendingHandlers, id)
+}
+
+func AutoAllowPending() {
+	pendingMu.Lock()
+	handlers := make([]func(), 0, len(pendingHandlers))
+	for _, h := range pendingHandlers {
+		handlers = append(handlers, h)
+	}
+	pendingHandlers = map[uint64]func(){}
+	pendingMu.Unlock()
+	for _, h := range handlers {
+		h()
+	}
+}
 
 // Display caps for fields rendered in the approval dialog. Both originate
 // from the client, so unbounded content could spoof the dialog layout.
@@ -68,41 +104,18 @@ func sanitizeForDisplay(s string, maxLen int) string {
 	return out
 }
 
-// ApprovalScope describes the breadth of an approval grant.
-type ApprovalScope int
-
-const (
-	// ApprovalScopeProcess grants approval to the single calling PID.
-	ApprovalScopeProcess ApprovalScope = iota
-	// ApprovalScopeExecutable grants approval to any future process
-	// running the same executable image.
-	ApprovalScopeExecutable
-)
-
-// ApprovalRequest describes the secret retrieval that needs user
-// consent. ProviderRef is shown verbatim in the dialog (e.g.
-// "keepass(vault.kdbx | github/token)"). ClientDisplay is the short
-// process label (executable path or image name); ClientDetails is
-// the multi-line tooltip revealed on hover — same overlay treatment
-// as the unlock prompts. ExePath is the executable path (if known);
-// when empty, the "Allow this executable" row is disabled.
 type ApprovalRequest struct {
 	ProviderRef      string
 	ClientDisplay    string
 	ClientDetails    string
-	ExePath          string
+	ParentDisplay    string
+	ParentDetails    string
 	HasExistingGrant bool
 }
 
-// ApprovalDecision is the outcome of the approval dialog. When Allow
-// is true, Scope and DurationMinutes carry the user's choice
-// (DurationMinutes uses static.ApprovalDurationUntilRestart for
-// "until daemon restart"). Forget signals revoke + evict; Allow and
-// Forget are mutually exclusive.
 type ApprovalDecision struct {
 	Allow           bool
 	Forget          bool
-	Scope           ApprovalScope
 	DurationMinutes int
 }
 
@@ -111,10 +124,24 @@ type ApprovalDecision struct {
 func PromptApproval(req ApprovalRequest) (ApprovalDecision, error) {
 	resultCh := make(chan any, 1)
 	a := fyne.CurrentApp()
+	var winRef fyne.Window
 	fyne.Do(func() {
 		w := newApprovalWindow(a, "Allow secret access?", resultCh)
+		winRef = w
 		buildApprovalUI(w, req, nil, resultCh)
 	})
+	id := registerPendingApproval(func() {
+		fyne.Do(func() {
+			select {
+			case resultCh <- ApprovalDecision{Allow: true, DurationMinutes: 0}:
+			default:
+			}
+			if winRef != nil {
+				winRef.Close()
+			}
+		})
+	})
+	defer unregisterPendingApproval(id)
 	res := <-resultCh
 	if err, ok := res.(error); ok {
 		return ApprovalDecision{}, err
@@ -169,19 +196,37 @@ func newApprovalWindow(a fyne.App, title string, resultCh chan any) fyne.Window 
 	return w
 }
 
-func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions, resultCh chan any) {
-	procDurationSelect, durationMap := buildApprovalDurationSelect()
-	exeDurationSelect, _ := buildApprovalDurationSelect()
+func effectiveProcessInfo(req ApprovalRequest) (display, details string) {
+	return EffectiveClient(req.ClientDisplay, req.ClientDetails, req.ParentDisplay, req.ParentDetails)
+}
 
+func EffectiveClient(clientDisplay, clientDetails, parentDisplay, parentDetails string) (display, details string) {
+	if isDesktopSecretsClient(clientDisplay) && parentDisplay != "" {
+		return parentDisplay, parentDetails
+	}
+	return clientDisplay, clientDetails
+}
+
+func isDesktopSecretsClient(displayPath string) bool {
+	base := strings.ToLower(filepath.Base(displayPath))
+	base = strings.TrimSuffix(base, ".exe")
+	return base == "getsec" || base == "tplenv" ||
+		strings.HasPrefix(base, "getsec.") || strings.HasPrefix(base, "tplenv.")
+}
+
+func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions, resultCh chan any) {
+	durationSelect, durationMap := buildApprovalDurationSelect()
+
+	display, details := effectiveProcessInfo(req)
 	var processWidget fyne.CanvasObject
-	if req.ClientDetails != "" {
+	if details != "" {
 		processWidget = newHoverLabel(
-			sanitizeForDisplay(req.ClientDisplay, maxClientDisplayLen),
-			sanitizeTooltip(req.ClientDetails),
+			sanitizeForDisplay(display, maxClientDisplayLen),
+			sanitizeTooltip(details),
 			w,
 		)
 	} else {
-		processLbl := widget.NewLabel(sanitizeForDisplay(req.ClientDisplay, maxClientDisplayLen))
+		processLbl := widget.NewLabel(sanitizeForDisplay(display, maxClientDisplayLen))
 		processLbl.Wrapping = fyne.TextWrapWord
 		processWidget = processLbl
 	}
@@ -241,9 +286,10 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 
 	// Allow handler (shared by both rows). scope and durationSelect
 	// determine what gets recorded.
-	allowFn := func(scope ApprovalScope, durationSel *widget.Select) {
-		ttl := durationMap[durationSel.Selected]
-		decision := ApprovalDecision{Allow: true, Scope: scope, DurationMinutes: ttl}
+	allowFn := func() {
+		ttl := durationMap[durationSelect.Selected]
+		ApprovalGrantPersister(ttl)
+		decision := ApprovalDecision{Allow: true, DurationMinutes: ttl}
 
 		if kpOpts != nil {
 			useKF := useKeyfile.Checked
@@ -275,22 +321,11 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 		w.Close()
 	}
 
-	allowProcessBtn := widget.NewButton("Allow this process", func() {
-		allowFn(ApprovalScopeProcess, procDurationSelect)
-	})
-	allowProcessBtn.Importance = widget.HighImportance
-
-	allowExeBtn := widget.NewButton("Allow this executable", func() {
-		allowFn(ApprovalScopeExecutable, exeDurationSelect)
-	})
-	if req.ExePath == "" {
-		allowExeBtn.Disable()
-	}
+	allowBtn := widget.NewButton("Allow", allowFn)
+	allowBtn.Importance = widget.HighImportance
 
 	if passwordEntry != nil {
-		passwordEntry.OnSubmitted = func(_ string) {
-			allowFn(ApprovalScopeProcess, procDurationSelect)
-		}
+		passwordEntry.OnSubmitted = func(_ string) { allowFn() }
 	}
 
 	denyBtn := widget.NewButton("Deny", denyFn)
@@ -299,15 +334,10 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 		forgetBtn.Disable()
 	}
 
-	processRow := container.NewHBox(
-		allowProcessBtn,
+	allowRow := container.NewHBox(
+		allowBtn,
 		widget.NewLabel("for"),
-		procDurationSelect,
-	)
-	exeRow := container.NewHBox(
-		allowExeBtn,
-		widget.NewLabel("for"),
-		exeDurationSelect,
+		durationSelect,
 	)
 	denyRow := container.NewHBox(
 		layout.NewSpacer(),
@@ -317,8 +347,7 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 
 	bottom := container.NewVBox(
 		layout.NewSpacer(),
-		processRow,
-		exeRow,
+		allowRow,
 		denyRow,
 	)
 
@@ -350,6 +379,11 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 	}
 }
 
+var (
+	ApprovalGrantProvider  = func() int { return 0 }
+	ApprovalGrantPersister = func(int) {}
+)
+
 func buildApprovalDurationSelect() (*widget.Select, map[string]int) {
 	sel := widget.NewSelect(nil, nil)
 	m := make(map[string]int)
@@ -362,6 +396,13 @@ func buildApprovalDurationSelect() (*widget.Select, map[string]int) {
 		}
 	}
 	sel.Options = labels
+	remembered := ApprovalGrantProvider()
+	for label, mins := range m {
+		if mins == remembered {
+			sel.SetSelected(label)
+			break
+		}
+	}
 	return sel, m
 }
 

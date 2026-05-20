@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/buildmode"
 	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
@@ -29,6 +30,7 @@ func InitConfig() error {
 	viper.SetDefault("retrieval_approval", static.DefaultRetrievalApproval)
 	viper.SetDefault("auto_approve_on_unlock", static.DefaultAutoApproveOnUnlock)
 	viper.SetDefault("approval_factor_required", static.DefaultApprovalFactor)
+	viper.SetDefault("approval_grant_minutes", static.DefaultApprovalGrantMinutes)
 
 	var configFileNotFoundError viper.ConfigFileNotFoundError
 	if err := viper.ReadInConfig(); err != nil {
@@ -37,6 +39,11 @@ func InitConfig() error {
 				return err
 			}
 		}
+	}
+
+	if buildmode.Hardened {
+		viper.Set("retrieval_approval", true)
+		viper.Set("approval_factor_required", static.ApprovalFactorOSLocal)
 	}
 
 	return nil

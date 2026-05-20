@@ -33,6 +33,15 @@ func fillFromGopsutil(info *Info) {
 			if name, err := parent.Name(); err == nil {
 				info.ParentName = name
 			}
+			if exe, err := parent.Exe(); err == nil {
+				info.ParentExePath = exe
+			}
+			if cl, err := parent.Cmdline(); err == nil {
+				info.ParentCmdline = cl
+			}
+			if u, err := parent.Username(); err == nil {
+				info.ParentUsername = u
+			}
 		}
 	}
 }
