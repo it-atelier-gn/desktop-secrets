@@ -129,7 +129,7 @@ jobs:
           go build ${{ matrix.build_tags != '' && format('-tags {0}', matrix.build_tags) || '' }} -ldflags "-X github.com/it-atelier-gn/desktop-secrets/internal/version.Version=${{ steps.version.outputs.version }} -X github.com/it-atelier-gn/desktop-secrets/internal/version.Revision=${{ github.sha }}" -o ${{ matrix.output }} ${{ matrix.package }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.output }}
