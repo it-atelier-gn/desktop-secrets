@@ -93,9 +93,9 @@ func (g *Gate) lockFor(key string) *sync.Mutex {
 // the user clicked Allow but the OS prompt did not verify.
 func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) (string, error) {
 	info := clientinfo.Lookup(pid)
-	grantPID, grantStartTime := effectiveGrantTarget(pid, info)
+	grantExe := effectiveGrantExe(info)
 
-	if g.store.Check(grantPID, grantStartTime, providerKey) {
+	if g.store.Check(grantExe, providerKey) {
 		return "", nil
 	}
 
@@ -103,16 +103,14 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 	mu.Lock()
 	defer mu.Unlock()
 
-	if g.store.Check(grantPID, grantStartTime, providerKey) {
+	if g.store.Check(grantExe, providerKey) {
 		return "", nil
 	}
 
 	req := prompt.ApprovalRequest{
 		ProviderRef:      providerRef,
-		ClientDisplay:    info.Short(),
-		ClientDetails:    info.Tooltip(),
-		ParentDisplay:    info.ParentShort(),
-		ParentDetails:    info.ParentTooltip(),
+		ProcessDisplay:   info.EffectiveDisplay(),
+		ProcessDetails:   info.EffectiveTooltip(),
 		HasExistingGrant: g.store.HasAny(providerKey),
 	}
 	decision, err := g.prompter(req)
@@ -152,19 +150,22 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 
 	if decision.DurationMinutes != static.ApprovalDurationOnce {
 		d := durationFromMinutes(decision.DurationMinutes)
-		g.store.GrantProcess(grantPID, grantStartTime, providerKey, d)
+		g.store.GrantExecutable(grantExe, providerKey, d)
 	}
 	return factor, nil
 }
 
-func effectiveGrantTarget(pid int, info clientinfo.Info) (grantPID int, grantStartTime uint64) {
+func effectiveGrantExe(info clientinfo.Info) string {
+	if info.IsTplenvRun() {
+		return ""
+	}
 	if info.IsDesktopSecretsCLI() && info.ParentPID != 0 {
 		parent := clientinfo.Lookup(info.ParentPID)
-		if parent.PID != 0 {
-			return parent.PID, parent.StartTime
+		if parent.ExePath != "" {
+			return parent.ExePath
 		}
 	}
-	return pid, info.StartTime
+	return info.ExePath
 }
 
 // Store exposes the underlying store for tray-side controls (e.g.
@@ -177,21 +178,7 @@ func (g *Gate) Store() *Store {
 // Resolves clientinfo internally so callers don't need to.
 func (g *Gate) IsApproved(pid int, providerKey string) bool {
 	info := clientinfo.Lookup(pid)
-	gPID, gST := effectiveGrantTarget(pid, info)
-	return g.store.Check(gPID, gST, providerKey)
-}
-
-// GrantImplicit records a process-scoped grant without prompting the
-// user. Intended for the "auto-approve after first unlock" path: when
-// the provider is about to show a password/master-password dialog, we
-// treat a successful unlock as approval evidence and skip the separate
-// retrieval-approval prompt. The grant uses the daemon-restart sentinel
-// (no time-based expiry) so subsequent calls fall through quickly until
-// the user explicitly forgets.
-func (g *Gate) GrantImplicit(pid int, providerKey string) {
-	info := clientinfo.Lookup(pid)
-	gPID, gST := effectiveGrantTarget(pid, info)
-	g.store.GrantProcess(gPID, gST, providerKey, DurationUntilRestart)
+	return g.store.Check(effectiveGrantExe(info), providerKey)
 }
 
 func durationFromMinutes(m int) time.Duration {

@@ -50,7 +50,7 @@ func peerPID(c net.Conn) (int, error) {
 }
 
 var (
-	modKernel32                    = windows.NewLazySystemDLL("kernel32.dll")
+	modKernel32                     = windows.NewLazySystemDLL("kernel32.dll")
 	procGetNamedPipeClientProcessId = modKernel32.NewProc("GetNamedPipeClientProcessId")
 )
 

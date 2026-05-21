@@ -81,13 +81,12 @@ type AppState struct {
 	KEYCHAIN          KeychainResolver
 	VAULT             VaultResolver
 	ONEPASSWORD       OnePasswordResolver
-	UnlockTTL           utils.AtomicDuration
-	ShouldExit          utils.AtomicBool
-	RetrievalApproval   utils.AtomicBool
-	AutoApproveOnUnlock utils.AtomicBool
-	Approvals           *approval.Store
-	Gate                *approval.Gate
-	Audit               *audit.Logger
+	UnlockTTL         utils.AtomicDuration
+	ShouldExit        utils.AtomicBool
+	RetrievalApproval utils.AtomicBool
+	Approvals         *approval.Store
+	Gate              *approval.Gate
+	Audit             *audit.Logger
 
 	Server *DaemonServer
 }
@@ -114,7 +113,6 @@ func NewAppState() *AppState {
 	}
 	a.UnlockTTL.Store(ttl)
 	a.RetrievalApproval.Store(viper.GetBool("retrieval_approval"))
-	a.AutoApproveOnUnlock.Store(viper.GetBool("auto_approve_on_unlock"))
 
 	a.USER.SetUnlockTTL(&a.UnlockTTL)
 	a.KP.SetUnlockTTL(&a.UnlockTTL)

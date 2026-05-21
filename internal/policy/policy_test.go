@@ -27,16 +27,6 @@ func TestCompareStricterRetrieval(t *testing.T) {
 	}
 }
 
-func TestCompareWeakerAutoApprove(t *testing.T) {
-	base := Defaults()
-	base.AutoApproveOnUnlock = false
-	c := base
-	c.AutoApproveOnUnlock = true
-	if got := Compare(c, base); got != RelWeaker {
-		t.Fatalf("enabling auto_approve_on_unlock should be weaker, got %v", got)
-	}
-}
-
 func TestCompareFactorOrdering(t *testing.T) {
 	base := Defaults()
 	base.ApprovalFactorRequired = static.ApprovalFactorOSLocal
@@ -56,8 +46,8 @@ func TestCompareMixed(t *testing.T) {
 	base.RetrievalApproval = true
 	base.ApprovalFactorRequired = static.ApprovalFactorOSLocal
 	c := base
-	c.RetrievalApproval = false               // weaker
-	c.ApprovalFactorRequired = "hardware"     // stricter
+	c.RetrievalApproval = false           // weaker
+	c.ApprovalFactorRequired = "hardware" // stricter
 	if got := Compare(c, base); got != RelMixed {
 		t.Fatalf("mixed change should be RelMixed, got %v", got)
 	}
@@ -94,7 +84,6 @@ func (m *memStore) Save(p Policy) error {
 func setViperPolicy(p Policy) {
 	viper.Reset()
 	viper.Set("retrieval_approval", p.RetrievalApproval)
-	viper.Set("auto_approve_on_unlock", p.AutoApproveOnUnlock)
 	viper.Set("approval_factor_required", p.ApprovalFactorRequired)
 }
 

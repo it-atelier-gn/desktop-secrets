@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"unicode"
@@ -18,9 +17,9 @@ import (
 )
 
 var (
-	pendingMu        sync.Mutex
-	pendingNextID    uint64
-	pendingHandlers  = map[uint64]func(){}
+	pendingMu       sync.Mutex
+	pendingNextID   uint64
+	pendingHandlers = map[uint64]func(){}
 )
 
 func registerPendingApproval(autoAllow func()) uint64 {
@@ -106,10 +105,8 @@ func sanitizeForDisplay(s string, maxLen int) string {
 
 type ApprovalRequest struct {
 	ProviderRef      string
-	ClientDisplay    string
-	ClientDetails    string
-	ParentDisplay    string
-	ParentDetails    string
+	ProcessDisplay   string
+	ProcessDetails   string
 	HasExistingGrant bool
 }
 
@@ -196,37 +193,18 @@ func newApprovalWindow(a fyne.App, title string, resultCh chan any) fyne.Window 
 	return w
 }
 
-func effectiveProcessInfo(req ApprovalRequest) (display, details string) {
-	return EffectiveClient(req.ClientDisplay, req.ClientDetails, req.ParentDisplay, req.ParentDetails)
-}
-
-func EffectiveClient(clientDisplay, clientDetails, parentDisplay, parentDetails string) (display, details string) {
-	if isDesktopSecretsClient(clientDisplay) && parentDisplay != "" {
-		return parentDisplay, parentDetails
-	}
-	return clientDisplay, clientDetails
-}
-
-func isDesktopSecretsClient(displayPath string) bool {
-	base := strings.ToLower(filepath.Base(displayPath))
-	base = strings.TrimSuffix(base, ".exe")
-	return base == "getsec" || base == "tplenv" ||
-		strings.HasPrefix(base, "getsec.") || strings.HasPrefix(base, "tplenv.")
-}
-
 func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions, resultCh chan any) {
 	durationSelect, durationMap := buildApprovalDurationSelect()
 
-	display, details := effectiveProcessInfo(req)
 	var processWidget fyne.CanvasObject
-	if details != "" {
+	if req.ProcessDetails != "" {
 		processWidget = newHoverLabel(
-			sanitizeForDisplay(display, maxClientDisplayLen),
-			sanitizeTooltip(details),
+			sanitizeForDisplay(req.ProcessDisplay, maxClientDisplayLen),
+			sanitizeTooltip(req.ProcessDetails),
 			w,
 		)
 	} else {
-		processLbl := widget.NewLabel(sanitizeForDisplay(display, maxClientDisplayLen))
+		processLbl := widget.NewLabel(sanitizeForDisplay(req.ProcessDisplay, maxClientDisplayLen))
 		processLbl.Wrapping = fyne.TextWrapWord
 		processWidget = processLbl
 	}

@@ -62,7 +62,7 @@ func queryFullImageName(pid uint32) (string, error) {
 }
 
 var (
-	modKernel32                  = windows.NewLazySystemDLL("kernel32.dll")
+	modKernel32                    = windows.NewLazySystemDLL("kernel32.dll")
 	procQueryFullProcessImageNameW = modKernel32.NewProc("QueryFullProcessImageNameW")
 )
 

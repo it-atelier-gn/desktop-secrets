@@ -58,8 +58,6 @@ func ApplyApprovalMode(m ApprovalMode) (retrievalApproval bool, factor string) {
 	}
 }
 
-const DefaultAutoApproveOnUnlock = false
-
 const ApprovalDurationUntilRestart = -1
 const ApprovalDurationOnce = 0
 

@@ -11,18 +11,34 @@ import (
 )
 
 func (i Info) IsDesktopSecretsCLI() bool {
-	candidates := []string{i.ExePath, i.Name}
-	for _, c := range candidates {
+	name := i.cliName()
+	return name == "getsec" || name == "tplenv"
+}
+
+func (i Info) IsTplenvRun() bool {
+	if i.cliName() != "tplenv" {
+		return false
+	}
+	for _, f := range strings.Fields(i.Cmdline) {
+		if f == "run" {
+			return true
+		}
+	}
+	return false
+}
+
+func (i Info) cliName() string {
+	for _, c := range []string{i.ExePath, i.Name} {
 		if c == "" {
 			continue
 		}
 		base := strings.ToLower(filepath.Base(c))
 		base = strings.TrimSuffix(base, ".exe")
 		if base == "getsec" || base == "tplenv" {
-			return true
+			return base
 		}
 	}
-	return false
+	return ""
 }
 
 type ctxKey struct{}
@@ -45,18 +61,32 @@ func InfoFromContext(ctx context.Context) Info {
 // (Windows FILETIME / Linux /proc stat starttime / 0 if unavailable);
 // combined with PID by the approval store to detect PID reuse.
 type Info struct {
-	PID        int
-	Name       string // basename / image name
-	ExePath    string // full path; empty when unavailable
-	Cwd        string // working directory; empty when unavailable
-	Cmdline    string // full command line; empty when unavailable
-	Username   string // OS account running the process; empty when unavailable
+	PID            int
+	Name           string // basename / image name
+	ExePath        string // full path; empty when unavailable
+	Cwd            string // working directory; empty when unavailable
+	Cmdline        string // full command line; empty when unavailable
+	Username       string // OS account running the process; empty when unavailable
 	ParentPID      int
 	ParentName     string
 	ParentExePath  string
 	ParentCmdline  string
 	ParentUsername string
 	StartTime      uint64
+}
+
+func (i Info) EffectiveDisplay() string {
+	if i.IsDesktopSecretsCLI() && i.ParentPID != 0 {
+		return i.ParentShort()
+	}
+	return i.Short()
+}
+
+func (i Info) EffectiveTooltip() string {
+	if i.IsDesktopSecretsCLI() && i.ParentPID != 0 {
+		return i.ParentTooltip()
+	}
+	return i.Tooltip()
 }
 
 func (i Info) ParentShort() string {

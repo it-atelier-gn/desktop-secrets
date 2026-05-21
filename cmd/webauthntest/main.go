@@ -27,17 +27,17 @@ import (
 
 // webauthn.h constants (subset).
 const (
-	rpEntityInfoCurrentVersion       = 1
-	userEntityInfoCurrentVersion     = 1
-	clientDataCurrentVersion         = 1
-	coseCredParamCurrentVersion      = 1
-	credentialCurrentVersion         = 1
-	makeCredOptionsVersion1          = 1
-	getAssertionOptionsVersion1      = 1
+	rpEntityInfoCurrentVersion   = 1
+	userEntityInfoCurrentVersion = 1
+	clientDataCurrentVersion     = 1
+	coseCredParamCurrentVersion  = 1
+	credentialCurrentVersion     = 1
+	makeCredOptionsVersion1      = 1
+	getAssertionOptionsVersion1  = 1
 
-	attachmentAny            = 0
-	attachmentPlatform       = 1
-	attachmentCrossPlatform  = 2
+	attachmentAny           = 0
+	attachmentPlatform      = 1
+	attachmentCrossPlatform = 2
 
 	uvRequirementAny         = 0
 	uvRequirementRequired    = 1
@@ -124,15 +124,15 @@ type extensions struct {
 }
 
 type makeCredOptions struct {
-	Version                  uint32
-	TimeoutMS                uint32
-	ExcludeList              credentials
-	Extensions               extensions
-	AuthenticatorAttachment  uint32
-	RequireResidentKey       uint32 // BOOL
-	UserVerificationReq      uint32
-	AttestationConveyance    uint32
-	Flags                    uint32
+	Version                 uint32
+	TimeoutMS               uint32
+	ExcludeList             credentials
+	Extensions              extensions
+	AuthenticatorAttachment uint32
+	RequireResidentKey      uint32 // BOOL
+	UserVerificationReq     uint32
+	AttestationConveyance   uint32
+	Flags                   uint32
 }
 
 type getAssertionOptions struct {
@@ -150,18 +150,18 @@ type getAssertionOptions struct {
 // trailing fields are version-gated — reading past CbCredentialId on a
 // V1 surface is safe because the API allocates the full block.
 type credentialAttestation struct {
-	Version                 uint32
-	FormatType              *uint16
-	CbAuthenticatorData     uint32
-	PbAuthenticatorData     *byte
-	CbAttestation           uint32
-	PbAttestation           *byte
-	AttestationDecodeType   uint32
-	PvAttestationDecode     uintptr
-	CbAttestationObject     uint32
-	PbAttestationObject     *byte
-	CbCredentialID          uint32
-	PbCredentialID          *byte
+	Version               uint32
+	FormatType            *uint16
+	CbAuthenticatorData   uint32
+	PbAuthenticatorData   *byte
+	CbAttestation         uint32
+	PbAttestation         *byte
+	AttestationDecodeType uint32
+	PvAttestationDecode   uintptr
+	CbAttestationObject   uint32
+	PbAttestationObject   *byte
+	CbCredentialID        uint32
+	PbCredentialID        *byte
 }
 
 type assertion struct {
@@ -181,13 +181,13 @@ var (
 	modWebAuthn = windows.NewLazySystemDLL("webauthn.dll")
 	modKernel32 = windows.NewLazySystemDLL("kernel32.dll")
 
-	procGetAPIVersionNumber   = modWebAuthn.NewProc("WebAuthNGetApiVersionNumber")
-	procIsUVPAA               = modWebAuthn.NewProc("WebAuthNIsUserVerifyingPlatformAuthenticatorAvailable")
-	procMakeCredential        = modWebAuthn.NewProc("WebAuthNAuthenticatorMakeCredential")
-	procFreeAttestation       = modWebAuthn.NewProc("WebAuthNFreeCredentialAttestation")
-	procGetAssertion          = modWebAuthn.NewProc("WebAuthNAuthenticatorGetAssertion")
-	procFreeAssertion         = modWebAuthn.NewProc("WebAuthNFreeAssertion")
-	procGetErrorName          = modWebAuthn.NewProc("WebAuthNGetErrorName")
+	procGetAPIVersionNumber = modWebAuthn.NewProc("WebAuthNGetApiVersionNumber")
+	procIsUVPAA             = modWebAuthn.NewProc("WebAuthNIsUserVerifyingPlatformAuthenticatorAvailable")
+	procMakeCredential      = modWebAuthn.NewProc("WebAuthNAuthenticatorMakeCredential")
+	procFreeAttestation     = modWebAuthn.NewProc("WebAuthNFreeCredentialAttestation")
+	procGetAssertion        = modWebAuthn.NewProc("WebAuthNAuthenticatorGetAssertion")
+	procFreeAssertion       = modWebAuthn.NewProc("WebAuthNFreeAssertion")
+	procGetErrorName        = modWebAuthn.NewProc("WebAuthNGetErrorName")
 
 	procGetConsoleWindow = modKernel32.NewProc("GetConsoleWindow")
 )

@@ -29,13 +29,13 @@ const (
 	asyncStatusCanceled  = 2
 	asyncStatusError     = 3
 
-	uvResultVerified              = 0
-	uvResultDeviceNotPresent      = 1
-	uvResultNotConfiguredForUser  = 2
-	uvResultDisabledByPolicy      = 3
-	uvResultDeviceBusy            = 4
-	uvResultRetriesExhausted      = 5
-	uvResultCanceled              = 6
+	uvResultVerified             = 0
+	uvResultDeviceNotPresent     = 1
+	uvResultNotConfiguredForUser = 2
+	uvResultDisabledByPolicy     = 3
+	uvResultDeviceBusy           = 4
+	uvResultRetriesExhausted     = 5
+	uvResultCanceled             = 6
 )
 
 func uvResultName(v int32) string {

@@ -85,35 +85,11 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 	return out, errs
 }
 
-// gate enforces retrieval-approval (when enabled). When approval is
-// disabled or the gate field is nil (tests), it just calls fn.
-//
-// providerKey is the canonical lowercase ID stored in the approval
-// store. providerRef is the human-readable form shown to the user.
-// evictor is invoked when the user picks Forget.
 func gate(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, fn func() (string, error)) (string, error) {
-	return gateAutoApprove(ctx, app, providerKey, providerRef, evictor, nil, fn)
+	return gateWithUnlock(ctx, app, providerKey, providerRef, evictor, nil, fn)
 }
 
-// gateAutoApprove enforces retrieval-approval with one twist: when the
-// provider will itself put an unlock dialog in front of the user
-// (willPrompt() true), the unlock is shown *first* and only then is
-// the approval question asked. The thinking: the user has just typed
-// a secret-bearing password — making them subsequently click "Allow"
-// is the natural second consent step. Showing the approval dialog
-// first only to immediately follow up with a password prompt is the
-// flow users complained about.
-//
-// Behaviour matrix when retrieval-approval is enabled and no live
-// grant exists:
-//
-//   willPrompt() == true , AutoApproveOnUnlock == false:
-//       unlock dialog → approval dialog (two-step consent, default)
-//   willPrompt() == true , AutoApproveOnUnlock == true:
-//       unlock dialog → implicit grant (one consent: typing the password)
-//   willPrompt() == false (or nil):
-//       approval dialog only (no unlock to merge with)
-func gateAutoApprove(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, willPrompt func() bool, fn func() (string, error)) (string, error) {
+func gateWithUnlock(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, willPrompt func() bool, fn func() (string, error)) (string, error) {
 	if app.Gate == nil {
 		return fn()
 	}
@@ -147,12 +123,6 @@ func gateAutoApprove(ctx context.Context, app *AppState, providerKey, providerRe
 		if err != nil {
 			app.Audit.LogDecision(info, audit.DecisionUnlockFailed, providerKey, providerRef, err.Error())
 			return "", err
-		}
-		// Step 2: either implicit grant or explicit approval dialog.
-		if app.AutoApproveOnUnlock.Load() {
-			app.Gate.GrantImplicit(pid, providerKey)
-			app.Audit.LogDecision(info, audit.DecisionAutoApproved, providerKey, providerRef, "")
-			return out, nil
 		}
 		factor, err := app.Gate.Check(pid, providerKey, providerRef, evictor)
 		if err != nil {
@@ -205,7 +175,7 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		if title == "" {
 			return "", errors.New("empty user title")
 		}
-		return gateAutoApprove(ctx, app, "user:"+title, fmt.Sprintf("user(%s)", title),
+		return gateWithUnlock(ctx, app, "user:"+title, fmt.Sprintf("user(%s)", title),
 			func(_ string) { app.USER.Evict(title) },
 			func() bool { return !app.USER.HasCached(title) },
 			func() (string, error) {
@@ -260,7 +230,7 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 				return "", fmt.Errorf("resolving nested expression %q: %w", ne, err)
 			}
 			willPrompt := func() bool { return !app.KP.IsVaultUnlocked(kpVaultKey(base)) }
-			return gateAutoApprove(ctx, app, providerKey, providerRef, evictor, willPrompt,
+			return gateWithUnlock(ctx, app, providerKey, providerRef, evictor, willPrompt,
 				func() (string, error) {
 					p, err := app.KP.ResolvePassword(ctx, base, title, nestedResolved, ttl, func(expr string) (string, error) {
 						return parseAndResolve(ctx, app, ttl, expr)
@@ -274,7 +244,7 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 
 		// no nested expression: call resolver normally
 		willPrompt := func() bool { return !app.KP.IsVaultUnlocked(kpVaultKey(base)) }
-		return gateAutoApprove(ctx, app, providerKey, providerRef, evictor, willPrompt,
+		return gateWithUnlock(ctx, app, providerKey, providerRef, evictor, willPrompt,
 			func() (string, error) {
 				p, err := app.KP.ResolvePassword(ctx, base, title, "", ttl, func(expr string) (string, error) {
 					return parseAndResolve(ctx, app, ttl, expr)

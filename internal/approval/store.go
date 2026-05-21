@@ -9,23 +9,19 @@ const DurationUntilRestart time.Duration = -1
 
 type grant struct {
 	expires time.Time
-}
-
-type pidKey struct {
-	pid       int
-	startTime uint64
+	exeHash string
 }
 
 type keyGrants struct {
-	pids map[pidKey]grant
+	exes map[string]grant
 }
 
 func newKeyGrants() *keyGrants {
-	return &keyGrants{pids: make(map[pidKey]grant)}
+	return &keyGrants{exes: make(map[string]grant)}
 }
 
 func (k *keyGrants) empty() bool {
-	return len(k.pids) == 0
+	return len(k.exes) == 0
 }
 
 type Store struct {
@@ -37,7 +33,10 @@ func NewStore() *Store {
 	return &Store{byKey: make(map[string]*keyGrants)}
 }
 
-func (s *Store) Check(pid int, startTime uint64, key string) bool {
+func (s *Store) Check(exePath, key string) bool {
+	if exePath == "" {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kg, ok := s.byKey[key]
@@ -45,12 +44,11 @@ func (s *Store) Check(pid int, startTime uint64, key string) bool {
 		return false
 	}
 	now := time.Now()
-	pk := pidKey{pid: pid, startTime: startTime}
-	if g, ok := kg.pids[pk]; ok {
-		if alive(g, now) {
+	if g, ok := kg.exes[exePath]; ok {
+		if alive(g, now) && exeHashMatches(exePath, g.exeHash) {
 			return true
 		}
-		delete(kg.pids, pk)
+		delete(kg.exes, exePath)
 	}
 	if kg.empty() {
 		delete(s.byKey, key)
@@ -62,7 +60,10 @@ func alive(g grant, now time.Time) bool {
 	return g.expires.IsZero() || now.Before(g.expires)
 }
 
-func (s *Store) GrantProcess(pid int, startTime uint64, key string, d time.Duration) {
+func (s *Store) GrantExecutable(exePath, key string, d time.Duration) {
+	if exePath == "" {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kg, ok := s.byKey[key]
@@ -70,7 +71,9 @@ func (s *Store) GrantProcess(pid int, startTime uint64, key string, d time.Durat
 		kg = newKeyGrants()
 		s.byKey[key] = kg
 	}
-	kg.pids[pidKey{pid: pid, startTime: startTime}] = makeGrant(d)
+	g := makeGrant(d)
+	g.exeHash, _ = computeExeHash(exePath)
+	kg.exes[exePath] = g
 }
 
 func makeGrant(d time.Duration) grant {
@@ -94,11 +97,11 @@ func (s *Store) HasAny(key string) bool {
 		return false
 	}
 	now := time.Now()
-	for k, g := range kg.pids {
-		if alive(g, now) {
+	for path, g := range kg.exes {
+		if alive(g, now) && exeHashMatches(path, g.exeHash) {
 			return true
 		}
-		delete(kg.pids, k)
+		delete(kg.exes, path)
 	}
 	if kg.empty() {
 		delete(s.byKey, key)
