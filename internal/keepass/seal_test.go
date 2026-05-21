@@ -70,8 +70,8 @@ func writeKDBX(t *testing.T, dir string) (path, master string, want map[string]s
 	}
 
 	want = map[string]string{
-		"AWS/Prod":     "prod-secret-1",
-		"AWS/Sub/Dev":  "dev-secret-2",
+		"AWS/Prod":    "prod-secret-1",
+		"AWS/Sub/Dev": "dev-secret-2",
 	}
 	return path, master, want
 }

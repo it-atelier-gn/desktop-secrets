@@ -28,7 +28,6 @@ func InitConfig() error {
 
 	viper.SetDefault("ttl", static.DefaultTTL)
 	viper.SetDefault("retrieval_approval", static.DefaultRetrievalApproval)
-	viper.SetDefault("auto_approve_on_unlock", static.DefaultAutoApproveOnUnlock)
 	viper.SetDefault("approval_factor_required", static.DefaultApprovalFactor)
 	viper.SetDefault("approval_grant_minutes", static.DefaultApprovalGrantMinutes)
 
@@ -44,6 +43,10 @@ func InitConfig() error {
 	if buildmode.Hardened {
 		viper.Set("retrieval_approval", true)
 		viper.Set("approval_factor_required", static.ApprovalFactorOSLocal)
+	} else {
+		if factor := viper.GetString("approval_factor_required"); factor != static.ApprovalFactorClick && factor != static.ApprovalFactorOSLocal {
+			viper.Set("approval_factor_required", static.ApprovalFactorClick)
+		}
 	}
 
 	return nil

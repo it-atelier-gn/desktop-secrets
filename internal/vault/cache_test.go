@@ -78,4 +78,3 @@ func TestExpiredEntryEvictedOnRead(t *testing.T) {
 		t.Fatalf("expected 2 calls after expiry, got %d", fl.calls)
 	}
 }
-

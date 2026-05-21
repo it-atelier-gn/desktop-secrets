@@ -94,15 +94,15 @@ type waExtensions struct {
 }
 
 type waMakeOpts struct {
-	Version                uint32
-	TimeoutMS              uint32
-	ExcludeList            waCredentials
-	Extensions             waExtensions
-	Attachment             uint32
-	RequireResidentKey     uint32
-	UserVerification       uint32
-	AttestationConveyance  uint32
-	Flags                  uint32
+	Version               uint32
+	TimeoutMS             uint32
+	ExcludeList           waCredentials
+	Extensions            waExtensions
+	Attachment            uint32
+	RequireResidentKey    uint32
+	UserVerification      uint32
+	AttestationConveyance uint32
+	Flags                 uint32
 }
 
 type waAssertOpts struct {
@@ -116,18 +116,18 @@ type waAssertOpts struct {
 }
 
 type waAttestation struct {
-	Version             uint32
-	FormatType          *uint16
-	CbAuthData          uint32
-	PbAuthData          *byte
-	CbAttestation       uint32
-	PbAttestation       *byte
-	DecodeType          uint32
-	DecodePtr           uintptr
-	CbAttObject         uint32
-	PbAttObject         *byte
-	CbCredentialID      uint32
-	PbCredentialID      *byte
+	Version        uint32
+	FormatType     *uint16
+	CbAuthData     uint32
+	PbAuthData     *byte
+	CbAttestation  uint32
+	PbAttestation  *byte
+	DecodeType     uint32
+	DecodePtr      uintptr
+	CbAttObject    uint32
+	PbAttObject    *byte
+	CbCredentialID uint32
+	PbCredentialID *byte
 }
 
 type waAssertion struct {
@@ -150,9 +150,9 @@ var (
 	procWAErrName      = modWebAuthn.NewProc("WebAuthNGetErrorName")
 	procWAGetAPIVer    = modWebAuthn.NewProc("WebAuthNGetApiVersionNumber")
 
-	modUser32             = windows.NewLazySystemDLL("user32.dll")
-	procGetForegroundWnd  = modUser32.NewProc("GetForegroundWindow")
-	procGetDesktopWnd     = modUser32.NewProc("GetDesktopWindow")
+	modUser32            = windows.NewLazySystemDLL("user32.dll")
+	procGetForegroundWnd = modUser32.NewProc("GetForegroundWindow")
+	procGetDesktopWnd    = modUser32.NewProc("GetDesktopWindow")
 )
 
 var (

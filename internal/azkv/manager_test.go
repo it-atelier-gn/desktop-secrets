@@ -4,10 +4,10 @@ import "testing"
 
 func TestSplitVaultAndName(t *testing.T) {
 	cases := []struct {
-		in         string
-		wantVault  string
-		wantName   string
-		wantErr    bool
+		in        string
+		wantVault string
+		wantName  string
+		wantErr   bool
 	}{
 		{"mykv/dbpass", "mykv", "dbpass", false},
 		{"https://mykv.vault.azure.net/dbpass", "https://mykv.vault.azure.net", "dbpass", false},
@@ -31,15 +31,15 @@ func TestSplitVaultAndName(t *testing.T) {
 
 func TestSplitVaultAndName_RejectsAttackerHosts(t *testing.T) {
 	rejected := []string{
-		"https://attacker.example.com/dbpass",        // arbitrary host
-		"https://mykv.vault.azure.net@evil.com/x",    // userinfo redirect
-		"http://mykv.vault.azure.net/x",              // plain http
-		"https://mykv.vault.azure.net.evil.com/x",    // suffix-spoof
-		"https://mykv.vault.azure.net/a/b",           // multi-segment path
-		"mykv.evil.com/dbpass",                       // bare label rejects dots
-		"my..kv/dbpass",                              // invalid label
-		"-mykv/dbpass",                               // leading hyphen
-		"mykv-/dbpass",                               // trailing hyphen
+		"https://attacker.example.com/dbpass",     // arbitrary host
+		"https://mykv.vault.azure.net@evil.com/x", // userinfo redirect
+		"http://mykv.vault.azure.net/x",           // plain http
+		"https://mykv.vault.azure.net.evil.com/x", // suffix-spoof
+		"https://mykv.vault.azure.net/a/b",        // multi-segment path
+		"mykv.evil.com/dbpass",                    // bare label rejects dots
+		"my..kv/dbpass",                           // invalid label
+		"-mykv/dbpass",                            // leading hyphen
+		"mykv-/dbpass",                            // trailing hyphen
 	}
 	for _, in := range rejected {
 		if _, _, err := splitVaultAndName(in); err == nil {

@@ -21,24 +21,20 @@ const (
 )
 
 type KeepassOptions struct {
-	KeepassFile   string
-	UseKeyfile    bool
-	Keyfile       string
-	CurrentTTL    int
-	ClientDisplay string
-	ClientDetails string
-	ParentDisplay string
-	ParentDetails string
-	Check         func(useKeyfile bool, keyfile string, password string, ttl int) error
+	KeepassFile    string
+	UseKeyfile     bool
+	Keyfile        string
+	CurrentTTL     int
+	ProcessDisplay string
+	ProcessDetails string
+	Check          func(useKeyfile bool, keyfile string, password string, ttl int) error
 }
 
 type UserOptions struct {
-	Prompt        string
-	CurrentTTL    int
-	ClientDisplay string
-	ClientDetails string
-	ParentDisplay string
-	ParentDetails string
+	Prompt         string
+	CurrentTTL     int
+	ProcessDisplay string
+	ProcessDetails string
 }
 
 type PromptResult struct {
@@ -122,12 +118,12 @@ func buildUserUI(w fyne.Window, opts *UserOptions, resultCh chan any) {
 	centerItems := []fyne.CanvasObject{
 		boldCentered(sanitizeForDisplay(opts.Prompt, maxProviderRefDisplay)),
 	}
-	if display, details := EffectiveClient(opts.ClientDisplay, opts.ClientDetails, opts.ParentDisplay, opts.ParentDetails); display != "" {
+	if opts.ProcessDisplay != "" {
 		centerItems = append(centerItems,
 			widget.NewLabel("Process:"),
 			newHoverLabel(
-				sanitizeForDisplay(display, maxClientDisplayLen),
-				sanitizeTooltip(details),
+				sanitizeForDisplay(opts.ProcessDisplay, maxClientDisplayLen),
+				sanitizeTooltip(opts.ProcessDetails),
 				w,
 			),
 		)
@@ -228,12 +224,12 @@ func buildKeePassUI(a fyne.App, w fyne.Window, opts *KeepassOptions, resultCh ch
 	centerItems := []fyne.CanvasObject{
 		boldCentered(opts.KeepassFile),
 	}
-	if display, details := EffectiveClient(opts.ClientDisplay, opts.ClientDetails, opts.ParentDisplay, opts.ParentDetails); display != "" {
+	if opts.ProcessDisplay != "" {
 		centerItems = append(centerItems,
 			widget.NewLabel("Process:"),
 			newHoverLabel(
-				sanitizeForDisplay(display, maxClientDisplayLen),
-				sanitizeTooltip(details),
+				sanitizeForDisplay(opts.ProcessDisplay, maxClientDisplayLen),
+				sanitizeTooltip(opts.ProcessDetails),
 				w,
 			),
 		)

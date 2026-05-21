@@ -57,8 +57,8 @@ func TestSplitPattern(t *testing.T) {
 		{"/AWS/**/api-key", []string{"AWS", "**", "api-key"}, false},
 		{"bare", []string{"bare"}, false},
 		{"/AWS/My\\/Key", []string{"AWS", "My/Key"}, false}, // escaped slash
-		{"/AWS/trailing\\", nil, true},                       // dangling escape
-		{"/", []string{}, false}, // root-only: no segments
+		{"/AWS/trailing\\", nil, true},                      // dangling escape
+		{"/", []string{}, false},                            // root-only: no segments
 	}
 
 	for _, tc := range cases {

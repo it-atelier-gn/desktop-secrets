@@ -20,13 +20,12 @@ import (
 type Decision string
 
 const (
-	DecisionAllowed       Decision = "allowed"        // user clicked Allow on the approval dialog
-	DecisionAutoApproved  Decision = "auto_approved"  // approval skipped because the unlock prompt acted as consent
-	DecisionCached        Decision = "cached"         // existing live grant matched, no prompt shown
-	DecisionDenied        Decision = "denied"         // user clicked Deny / closed the approval dialog
-	DecisionForgotten     Decision = "forgotten"      // user clicked Forget on the approval dialog
-	DecisionUnlockFailed  Decision = "unlock_failed"  // password / master-password prompt errored out
-	DecisionOSAuthFailed  Decision = "os_auth_failed" // user clicked Allow but the OS factor (Hello / etc.) did not verify
+	DecisionAllowed      Decision = "allowed"        // user clicked Allow on the approval dialog
+	DecisionCached       Decision = "cached"         // existing live grant matched, no prompt shown
+	DecisionDenied       Decision = "denied"         // user clicked Deny / closed the approval dialog
+	DecisionForgotten    Decision = "forgotten"      // user clicked Forget on the approval dialog
+	DecisionUnlockFailed Decision = "unlock_failed"  // password / master-password prompt errored out
+	DecisionOSAuthFailed Decision = "os_auth_failed" // user clicked Allow but the OS factor (Hello / etc.) did not verify
 )
 
 // Record is one audit-log entry, serialised as a single JSON line.

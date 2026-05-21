@@ -17,9 +17,6 @@ func FromViper() Policy {
 	if viper.IsSet("retrieval_approval") {
 		p.RetrievalApproval = viper.GetBool("retrieval_approval")
 	}
-	if viper.IsSet("auto_approve_on_unlock") {
-		p.AutoApproveOnUnlock = viper.GetBool("auto_approve_on_unlock")
-	}
 	if v := viper.GetString("approval_factor_required"); v != "" {
 		p.ApprovalFactorRequired = v
 	}
@@ -31,7 +28,6 @@ func FromViper() Policy {
 // keystore copy, not the (rejected) yaml.
 func ApplyToViper(p Policy) {
 	viper.Set("retrieval_approval", p.RetrievalApproval)
-	viper.Set("auto_approve_on_unlock", p.AutoApproveOnUnlock)
 	viper.Set("approval_factor_required", p.ApprovalFactorRequired)
 }
 

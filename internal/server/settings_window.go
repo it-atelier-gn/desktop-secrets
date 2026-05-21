@@ -6,7 +6,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
 
@@ -66,6 +65,17 @@ func showSettingsWindow(app *AppState) {
 			viper.GetBool("retrieval_approval"),
 			viper.GetString("approval_factor_required"),
 		)
+		if _, ok := labelByMode[current]; !ok {
+			current = static.ApprovalModeOff
+			approval, factor := static.ApplyApprovalMode(current)
+			viper.Set("retrieval_approval", approval)
+			viper.Set("approval_factor_required", factor)
+			if err := viper.WriteConfig(); err != nil {
+				log.Printf("Failed to normalize approval mode to Off: %v", err)
+			}
+			app.RetrievalApproval.Store(approval)
+			prompt.AutoAllowPending()
+		}
 
 		explain := widget.NewLabel("")
 		explain.Wrapping = fyne.TextWrapWord
@@ -198,34 +208,6 @@ func showSettingsWindow(app *AppState) {
 			app.UnlockTTL.Store(time.Duration(minutes) * time.Minute)
 		}
 
-		grantsHeader := widget.NewLabelWithStyle(
-			"Active approval grants",
-			fyne.TextAlignLeading,
-			fyne.TextStyle{Bold: true},
-		)
-		grantsIntro := widget.NewLabel(
-			"Revoke every live retrieval-approval grant. Subsequent requests will " +
-				"prompt again. Does not affect vault-unlock caches.",
-		)
-		grantsIntro.Wrapping = fyne.TextWrapWord
-
-		forgetBtn := widget.NewButton("Forget all approvals", func() {
-			if app.Approvals == nil {
-				return
-			}
-			dialog.ShowConfirm(
-				"Forget all approvals?",
-				"This revokes every active retrieval-approval grant. Continue?",
-				func(ok bool) {
-					if !ok {
-						return
-					}
-					app.Approvals.RevokeAll()
-				},
-				w,
-			)
-		})
-
 		closeBtn := widget.NewButton("Close", func() { w.Close() })
 
 		items := []fyne.CanvasObject{header, intro}
@@ -238,10 +220,6 @@ func showSettingsWindow(app *AppState) {
 			ttlHeader,
 			ttlIntro,
 			ttlSelect,
-			widget.NewSeparator(),
-			grantsHeader,
-			grantsIntro,
-			forgetBtn,
 			widget.NewSeparator(),
 			container.NewHBox(closeBtn),
 		)

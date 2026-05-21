@@ -9,9 +9,9 @@ import (
 )
 
 type fakeSMClient struct {
-	calls    int
-	payload  string
-	respErr  error
+	calls   int
+	payload string
+	respErr error
 }
 
 func (f *fakeSMClient) AccessSecretVersion(_ context.Context, _ *secretmanagerpb.AccessSecretVersionRequest, _ ...any) (*secretmanagerpb.AccessSecretVersionResponse, error) {

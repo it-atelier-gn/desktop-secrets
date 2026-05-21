@@ -611,9 +611,9 @@ func TestParseAndResolve_GCP(t *testing.T) {
 func TestParseAndResolve_Keychain(t *testing.T) {
 	ctx := context.Background()
 	kc := &fakeKeychainResolver{creds: map[string]string{
-		"git.example.com|":        "tokA",
-		"git.example.com|alice":   "alice-token",
-		"github.com|":             "gh-default",
+		"git.example.com|":      "tokA",
+		"git.example.com|alice": "alice-token",
+		"github.com|":           "gh-default",
 	}}
 	app := newTestApp(nil, nil, nil, nil, nil, nil, kc)
 
@@ -654,8 +654,8 @@ func TestParseAndResolve_Vault(t *testing.T) {
 func TestParseAndResolve_OnePassword(t *testing.T) {
 	ctx := context.Background()
 	op := &fakeOnePasswordResolver{secrets: map[string]string{
-		"Personal/GitHub|":           "gh-default",
-		"Personal/AWS|access_key":    "AKIA123",
+		"Personal/GitHub|":        "gh-default",
+		"Personal/AWS|access_key": "AKIA123",
 	}}
 	app := newTestAppFull(nil, nil, nil, nil, nil, nil, nil, nil, op)
 
