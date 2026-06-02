@@ -271,16 +271,18 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 
 		if kpOpts != nil {
 			useKF := useKeyfile.Checked
-			if err := kpOpts.Check(useKF, keyfile, passwordEntry.Text, ttlForUnlock(ttl, kpOpts.CurrentTTL)); err != nil {
+			pw := passwordEntry.Text
+			if err := kpOpts.Check(useKF, keyfile, pw, ttlForUnlock(ttl, kpOpts.CurrentTTL)); err != nil {
 				dialog.ShowError(err, w)
 				return
 			}
+			passwordEntry.Text = ""
 			resultCh <- approvalUnlockResult{
 				Decision: decision,
 				Unlock: &PromptResult{
 					Keyfile:    keyfile,
 					UseKeyfile: useKF,
-					Password:   passwordEntry.Text,
+					Password:   pw,
 					TTLMinutes: ttlForUnlock(ttl, kpOpts.CurrentTTL),
 				},
 			}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/cacheinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 )
 
@@ -177,6 +179,29 @@ func (m *Manager) Evict(key string) {
 		e.sealed.Destroy()
 		delete(m.cache, key)
 	}
+}
+
+func (m *Manager) EvictAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, e := range m.cache {
+		e.sealed.Destroy()
+		delete(m.cache, k)
+	}
+}
+
+func (m *Manager) CachedKeys() []cacheinfo.Entry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	out := make([]cacheinfo.Entry, 0, len(m.cache))
+	for k, e := range m.cache {
+		if now.Before(e.expires) {
+			out = append(out, cacheinfo.Entry{Key: k, Expires: e.expires})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
 }
 
 func (m *Manager) readCache(key string) (string, bool) {

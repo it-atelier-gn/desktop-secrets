@@ -7,12 +7,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/ipc"
+	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 )
 
 // ctxKey is an unexported type for request-context keys to avoid
@@ -102,22 +104,41 @@ func (ds *DaemonServer) handleRender(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lines := splitLinesPreserve(string(body))
+	for i := range body {
+		body[i] = 0
+	}
 	rendered, errs := ResolveEnvLines(r.Context(), ds.App, lines)
 
 	if len(errs) > 0 {
-		var sb strings.Builder
-		for _, e := range errs {
-			sb.WriteString(e.Error())
-			sb.WriteString("\n")
-		}
 		w.Header().Set("X-EnvTray-Warnings", strconv.Itoa(len(errs)))
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte(strings.Join(rendered, "\n")))
-		return
 	}
-
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(strings.Join(rendered, "\n")))
+	w.Header().Set("Connection", "close")
+
+	writeAndWipe(w, rendered)
+	for i := range rendered {
+		rendered[i] = ""
+	}
+	runtime.GC()
+}
+
+func writeAndWipe(w http.ResponseWriter, lines []string) {
+	var total int
+	for _, l := range lines {
+		total += len(l) + 1
+	}
+	buf := make([]byte, 0, total)
+	for i, l := range lines {
+		if i > 0 {
+			buf = append(buf, '\n')
+		}
+		buf = append(buf, l...)
+	}
+	_, _ = w.Write(buf)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	memprotect.Wipe(buf)
 }
 
 func (ds *DaemonServer) Serve() error {
