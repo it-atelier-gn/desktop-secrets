@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/cacheinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 )
 
@@ -107,6 +109,29 @@ func (m *Manager) ResolveSecret(ctx context.Context, ref, field string) (string,
 
 	m.storeCache(resource, raw)
 	return extractField(raw, field)
+}
+
+func (m *Manager) EvictAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, e := range m.cache {
+		e.sealed.Destroy()
+		delete(m.cache, k)
+	}
+}
+
+func (m *Manager) CachedKeys() []cacheinfo.Entry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	out := make([]cacheinfo.Entry, 0, len(m.cache))
+	for k, e := range m.cache {
+		if now.Before(e.expires) {
+			out = append(out, cacheinfo.Entry{Key: k, Expires: e.expires})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
 }
 
 // Evict removes a single cache entry by key (the GCP secret resource name).

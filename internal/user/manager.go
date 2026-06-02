@@ -3,9 +3,11 @@ package user
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/cacheinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
@@ -53,6 +55,29 @@ func (m *UserManager) Evict(title string) {
 		e.sealed.Destroy()
 		delete(m.password, title)
 	}
+}
+
+func (m *UserManager) EvictAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for t, e := range m.password {
+		e.sealed.Destroy()
+		delete(m.password, t)
+	}
+}
+
+func (m *UserManager) CachedKeys() []cacheinfo.Entry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	now := time.Now()
+	out := make([]cacheinfo.Entry, 0, len(m.password))
+	for t, e := range m.password {
+		if now.Before(e.expires) {
+			out = append(out, cacheinfo.Entry{Key: t, Expires: e.expires})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
 }
 
 func (m *UserManager) ResolvePassword(ctx context.Context, title string, ttl time.Duration) (string, error) {

@@ -106,8 +106,10 @@ func buildUserUI(w fyne.Window, opts *UserOptions, resultCh chan any) {
 	passwordEntry.SetPlaceHolder("Enter Password")
 
 	submit := func() {
+		pw := passwordEntry.Text
+		passwordEntry.Text = ""
 		resultCh <- PromptResult{
-			Password:   passwordEntry.Text,
+			Password:   pw,
 			TTLMinutes: ttlMap[ttlSelect.Selected],
 		}
 		w.Close()
@@ -205,15 +207,17 @@ func buildKeePassUI(a fyne.App, w fyne.Window, opts *KeepassOptions, resultCh ch
 		ttl := ttlMap[ttlSelect.Selected]
 		useKF := useKeyfile.Checked
 
-		if err := opts.Check(useKF, keyfile, passwordEntry.Text, ttl); err != nil {
+		pw := passwordEntry.Text
+		if err := opts.Check(useKF, keyfile, pw, ttl); err != nil {
 			dialog.ShowError(err, w)
 			return
 		}
+		passwordEntry.Text = ""
 
 		resultCh <- PromptResult{
 			Keyfile:    keyfile,
 			UseKeyfile: useKF,
-			Password:   passwordEntry.Text,
+			Password:   pw,
 			TTLMinutes: ttl,
 		}
 		w.Close()

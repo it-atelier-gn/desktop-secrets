@@ -20,7 +20,7 @@ func showSettingsWindow(app *AppState) {
 	fyne.Do(func() {
 		w := fyne.CurrentApp().NewWindow("DesktopSecrets — Settings")
 		w.SetIcon(fyne.NewStaticResource("icon.ico", assetsIconBytes()))
-		w.Resize(fyne.NewSize(640, 620))
+		w.Resize(fyne.NewSize(640, 480))
 
 		header := widget.NewLabelWithStyle(
 			"Retrieval approval",

@@ -8,6 +8,7 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/audit"
 	"github.com/it-atelier-gn/desktop-secrets/internal/aws"
 	"github.com/it-atelier-gn/desktop-secrets/internal/azkv"
+	"github.com/it-atelier-gn/desktop-secrets/internal/cacheinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/gcpsm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keychain"
@@ -27,13 +28,21 @@ type KPResolver interface {
 	LoadKeyfiles() error
 	ResolvePassword(ctx context.Context, vault, title string, master string, ttl time.Duration, resolve func(expr string) (string, error)) (string, error)
 	EvictVault(key string)
+	EvictAll()
+	CachedVaults() []keepass.CachedVault
 	IsVaultUnlocked(key string) bool
+	Aliases() []keepass.AliasInfo
+	SetAliases(list []keepass.AliasInfo) error
+	Keyfiles() []keepass.KeyfileInfo
+	SetKeyfiles(list []keepass.KeyfileInfo) error
 }
 
 type UserResolver interface {
 	SetUnlockTTL(unlockTTL *utils.AtomicDuration)
 	ResolvePassword(ctx context.Context, title string, ttl time.Duration) (string, error)
 	Evict(title string)
+	EvictAll()
+	CachedKeys() []cacheinfo.Entry
 	HasCached(title string) bool
 }
 
@@ -45,16 +54,22 @@ type AWSResolver interface {
 	ResolveSecret(ctx context.Context, secretID, field string) (string, error)
 	ResolveParameter(ctx context.Context, name, field string) (string, error)
 	Evict(key string)
+	EvictAll()
+	CachedKeys() []cacheinfo.Entry
 }
 
 type AzureResolver interface {
 	ResolveSecret(ctx context.Context, ref, field string) (string, error)
 	Evict(key string)
+	EvictAll()
+	CachedKeys() []cacheinfo.Entry
 }
 
 type GCPResolver interface {
 	ResolveSecret(ctx context.Context, ref, field string) (string, error)
 	Evict(key string)
+	EvictAll()
+	CachedKeys() []cacheinfo.Entry
 }
 
 type KeychainResolver interface {
@@ -64,11 +79,15 @@ type KeychainResolver interface {
 type VaultResolver interface {
 	ResolveSecret(ctx context.Context, path, field string) (string, error)
 	Evict(key string)
+	EvictAll()
+	CachedKeys() []cacheinfo.Entry
 }
 
 type OnePasswordResolver interface {
 	ResolveSecret(ctx context.Context, ref, field string) (string, error)
 	Evict(key string)
+	EvictAll()
+	CachedKeys() []cacheinfo.Entry
 }
 
 type AppState struct {

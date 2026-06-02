@@ -16,12 +16,17 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
+	"github.com/it-atelier-gn/desktop-secrets/internal/winenv"
 
 	"fyne.io/fyne/v2/app"
 )
 
 func RunDaemon() {
 	memprotect.DisableErrorReporting()
+
+	if loaded := winenv.Hydrate(); len(loaded) > 0 {
+		log.Printf("env: hydrated %d variable(s) from the Windows registry", len(loaded))
+	}
 
 	if err := config.InitConfig(); err != nil {
 		log.Fatalf("Failed to initialize config: %v", err)

@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/it-atelier-gn/desktop-secrets/internal/cacheinfo"
+	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 	"reflect"
 	"slices"
@@ -34,6 +36,10 @@ func (f *fakeUserResolver) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 }
 
 func (f *fakeUserResolver) Evict(string) {}
+
+func (f *fakeUserResolver) EvictAll() {}
+
+func (f *fakeUserResolver) CachedKeys() []cacheinfo.Entry { return nil }
 
 func (f *fakeUserResolver) HasCached(string) bool { return false }
 
@@ -70,7 +76,19 @@ func (f *fakeKPResolver) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 
 func (f *fakeKPResolver) EvictVault(string) {}
 
+func (f *fakeKPResolver) EvictAll() {}
+
+func (f *fakeKPResolver) CachedVaults() []keepass.CachedVault { return nil }
+
 func (f *fakeKPResolver) IsVaultUnlocked(string) bool { return false }
+
+func (f *fakeKPResolver) Aliases() []keepass.AliasInfo { return nil }
+
+func (f *fakeKPResolver) SetAliases([]keepass.AliasInfo) error { return nil }
+
+func (f *fakeKPResolver) Keyfiles() []keepass.KeyfileInfo { return nil }
+
+func (f *fakeKPResolver) SetKeyfiles([]keepass.KeyfileInfo) error { return nil }
 
 type fakeAWSResolver struct {
 	secrets    map[string]string // "sm:id|field" -> value
@@ -90,6 +108,10 @@ func (f *fakeAWSResolver) ResolveSecret(_ context.Context, secretID, field strin
 }
 
 func (f *fakeAWSResolver) Evict(string) {}
+
+func (f *fakeAWSResolver) EvictAll() {}
+
+func (f *fakeAWSResolver) CachedKeys() []cacheinfo.Entry { return nil }
 
 func (f *fakeAWSResolver) ResolveParameter(_ context.Context, name, field string) (string, error) {
 	if f.err != nil {
@@ -136,6 +158,10 @@ func (f *fakeAzureResolver) ResolveSecret(_ context.Context, ref, field string) 
 
 func (f *fakeAzureResolver) Evict(string) {}
 
+func (f *fakeAzureResolver) EvictAll() {}
+
+func (f *fakeAzureResolver) CachedKeys() []cacheinfo.Entry { return nil }
+
 type fakeGCPResolver struct {
 	secrets map[string]string // "ref|field" -> value
 	err     error
@@ -152,6 +178,10 @@ func (f *fakeGCPResolver) ResolveSecret(_ context.Context, ref, field string) (s
 }
 
 func (f *fakeGCPResolver) Evict(string) {}
+
+func (f *fakeGCPResolver) EvictAll() {}
+
+func (f *fakeGCPResolver) CachedKeys() []cacheinfo.Entry { return nil }
 
 type fakeKeychainResolver struct {
 	creds map[string]string // "service|account" -> value
@@ -185,6 +215,10 @@ func (f *fakeVaultResolver) ResolveSecret(_ context.Context, path, field string)
 
 func (f *fakeVaultResolver) Evict(string) {}
 
+func (f *fakeVaultResolver) EvictAll() {}
+
+func (f *fakeVaultResolver) CachedKeys() []cacheinfo.Entry { return nil }
+
 type fakeOnePasswordResolver struct {
 	secrets map[string]string // "ref|field" -> value
 	err     error
@@ -201,6 +235,10 @@ func (f *fakeOnePasswordResolver) ResolveSecret(_ context.Context, ref, field st
 }
 
 func (f *fakeOnePasswordResolver) Evict(string) {}
+
+func (f *fakeOnePasswordResolver) EvictAll() {}
+
+func (f *fakeOnePasswordResolver) CachedKeys() []cacheinfo.Entry { return nil }
 
 // newTestApp wires fakes into an AppState. Pass nil for any resolver to use the default empty fake.
 func newTestApp(kp KPResolver, usr UserResolver, wc WincredResolver, awsr AWSResolver, az AzureResolver, gcp GCPResolver, kc KeychainResolver) *AppState {

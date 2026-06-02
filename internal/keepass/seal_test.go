@@ -95,35 +95,15 @@ func TestOpenVaultSealsProtectedEntries(t *testing.T) {
 		t.Fatalf("openVaultWithMaster: %v", err)
 	}
 
-	// Every protected attribute should now have its plaintext stripped from
-	// the live database struct and stored only as a Sealed entry.
-	var protectedFound int
-	for _, g := range vlt.db.Content.Root.Groups {
-		walkGroups(g, func(e *gokeepasslib.Entry) {
-			for _, v := range e.Values {
-				if v.Value.Protected.Bool {
-					protectedFound++
-					if v.Value.Content != "" {
-						t.Errorf("protected entry %q still has plaintext content %q", v.Key, v.Value.Content)
-					}
-				}
-			}
-		})
+	if len(vlt.entries) == 0 {
+		t.Fatal("no entries captured")
 	}
-	if protectedFound == 0 {
-		t.Fatal("no protected entries found in test fixture")
+	var sealedCount int
+	for _, e := range vlt.entries {
+		sealedCount += len(e.sealed)
 	}
-	if len(vlt.sealedAttrs) == 0 {
-		t.Fatal("sealedAttrs is empty")
-	}
-}
-
-func walkGroups(g gokeepasslib.Group, fn func(*gokeepasslib.Entry)) {
-	for i := range g.Entries {
-		fn(&g.Entries[i])
-	}
-	for _, sub := range g.Groups {
-		walkGroups(sub, fn)
+	if sealedCount == 0 {
+		t.Fatal("no sealed attributes captured")
 	}
 }
 
@@ -180,17 +160,14 @@ func TestVaultDestroyWipesSealedEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if len(vlt.sealedAttrs) == 0 {
+	if len(vlt.entries) == 0 {
 		t.Fatal("expected sealed entries before destroy")
 	}
 
 	vlt.destroy()
 
-	if vlt.db != nil {
-		t.Error("db not nil after destroy")
-	}
-	if vlt.sealedAttrs != nil {
-		t.Error("sealedAttrs not nil after destroy")
+	if vlt.entries != nil {
+		t.Error("entries not nil after destroy")
 	}
 	// Double destroy must not panic.
 	vlt.destroy()
@@ -204,4 +181,76 @@ func TestEntryNotFound(t *testing.T) {
 	if _, err := m.ResolvePassword(context.Background(), path, "/nonexistent", master, time.Hour, nil); err == nil {
 		t.Fatal("expected error for missing entry")
 	}
+}
+
+func TestCachedVaultsListsUnlocked(t *testing.T) {
+	dir := t.TempDir()
+	path, master, _ := writeKDBX(t, dir)
+	m := newManagerForTest(t)
+
+	if got := m.CachedVaults(); len(got) != 0 {
+		t.Fatalf("expected no cached vaults, got %d", len(got))
+	}
+
+	key := filepath.Base(path)
+	vlt, err := m.openVaultWithMaster(key, path, master, time.Hour)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	m.vaults[key] = vlt
+
+	got := m.CachedVaults()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 cached vault, got %d", len(got))
+	}
+	if got[0].Key != key {
+		t.Errorf("key = %q, want %q", got[0].Key, key)
+	}
+	if got[0].Filename != path {
+		t.Errorf("filename = %q, want %q", got[0].Filename, path)
+	}
+	if got[0].Expires.IsZero() {
+		t.Error("expires is zero")
+	}
+}
+
+func TestCachedVaultsExcludesExpired(t *testing.T) {
+	dir := t.TempDir()
+	path, master, _ := writeKDBX(t, dir)
+	m := newManagerForTest(t)
+
+	key := filepath.Base(path)
+	vlt, err := m.openVaultWithMaster(key, path, master, time.Hour)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	vlt.expires = time.Now().Add(-time.Minute)
+	m.vaults[key] = vlt
+
+	if got := m.CachedVaults(); len(got) != 0 {
+		t.Fatalf("expected expired vault excluded, got %d", len(got))
+	}
+}
+
+func TestEvictAllDestroysVaults(t *testing.T) {
+	dir := t.TempDir()
+	path, master, _ := writeKDBX(t, dir)
+	m := newManagerForTest(t)
+
+	key := filepath.Base(path)
+	vlt, err := m.openVaultWithMaster(key, path, master, time.Hour)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	m.vaults[key] = vlt
+
+	m.EvictAll()
+
+	if len(m.vaults) != 0 {
+		t.Errorf("vaults not cleared, got %d", len(m.vaults))
+	}
+	if vlt.entries != nil {
+		t.Error("evicted vault not destroyed")
+	}
+	m.EvictAll()
 }
