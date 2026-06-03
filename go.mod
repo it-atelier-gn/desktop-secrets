@@ -16,7 +16,7 @@ require (
 	github.com/gofrs/flock v0.13.0
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/mitchellh/go-ps v1.0.0
-	github.com/shirou/gopsutil/v4 v4.26.4
+	github.com/shirou/gopsutil/v4 v4.26.5
 	github.com/spf13/viper v1.21.0
 	github.com/tobischo/gokeepasslib/v3 v3.6.2
 	golang.org/x/sys v0.45.0
