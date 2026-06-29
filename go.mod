@@ -11,7 +11,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.42.3
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.42.4
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.69.3
 	github.com/danieljoos/wincred v1.2.3
 	github.com/getlantern/systray v1.2.2
