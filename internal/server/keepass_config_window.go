@@ -20,7 +20,7 @@ func normalizeFilePath(p string) string {
 }
 
 func browseInto(w fyne.Window, entry *widget.Entry) {
-	dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
+	d := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
 		if err != nil || r == nil {
 			return
 		}
@@ -28,6 +28,8 @@ func browseInto(w fyne.Window, entry *widget.Entry) {
 		_ = r.Close()
 		entry.SetText(normalizeFilePath(path))
 	}, w)
+	d.Resize(fyne.NewSize(900, 650))
+	d.Show()
 }
 
 type aliasRow struct {

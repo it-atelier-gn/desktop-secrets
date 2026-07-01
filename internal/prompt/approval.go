@@ -234,15 +234,17 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 		selectButton := widget.NewButton("Select", func() {
 			temp := fyne.CurrentApp().NewWindow("Select Keyfile")
 			temp.SetIcon(fyne.NewStaticResource("icon.ico", assets.IconBytes))
-			temp.Resize(fyne.NewSize(480, 370))
+			temp.Resize(fyne.NewSize(900, 650))
 			temp.CenterOnScreen()
-			dialog.ShowFileOpen(func(uri fyne.URIReadCloser, err error) {
+			d := dialog.NewFileOpen(func(uri fyne.URIReadCloser, err error) {
 				if err == nil && uri != nil {
 					keyfile = uri.URI().Path()
 					keyfileLabel.SetText(keyfile)
 				}
 				temp.Close()
 			}, temp)
+			d.Resize(fyne.NewSize(900, 650))
+			d.Show()
 			temp.Show()
 		})
 
