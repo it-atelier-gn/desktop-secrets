@@ -2,7 +2,7 @@ module github.com/it-atelier-gn/desktop-secrets
 
 go 1.26
 
-toolchain go1.26.4
+toolchain go1.26.5
 
 require (
 	cloud.google.com/go/secretmanager v1.20.0
