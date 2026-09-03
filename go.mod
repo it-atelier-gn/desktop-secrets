@@ -12,13 +12,13 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.45.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.1
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.46.1
-	github.com/aws/aws-sdk-go-v2/service/ssm v1.73.7
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.75.1
 	github.com/danieljoos/wincred v1.2.3
 	github.com/getlantern/systray v1.2.2
 	github.com/gofrs/flock v0.13.1
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/mitchellh/go-ps v1.0.0
-	github.com/shirou/gopsutil/v4 v4.26.7
+	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/spf13/viper v1.21.0
 	github.com/tobischo/gokeepasslib/v3 v3.7.0
 	golang.org/x/sys v0.47.0
