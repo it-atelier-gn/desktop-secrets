@@ -3,733 +3,633 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DesktopSecrets — Clean .env Secret Handling</title>
-  <meta name="description" content="Keep secrets out of your .env files. Commit .env templates to git and resolve them at runtime from KeePass, AWS, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, 1Password, macOS Keychain, or Windows Credential Manager." />
+  <title>DesktopSecrets</title>
+  <meta name="description" content="Keep secrets away from your disk and your AI coding agents. Commit your .env as a template and resolve its secrets at runtime from KeePass, AWS, Azure Key Vault, GCP Secret Manager, HashiCorp Vault, 1Password, macOS Keychain or Windows Credential Manager." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&family=Martian+Mono:wdth,wght@75..112.5,400..700&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:         #0d0d1a;
-      --bg-card:    #12122a;
-      --bg-nav:     rgba(13, 13, 26, 0.92);
-      --accent:     #34d399;
-      --accent-dim: rgba(52, 211, 153, 0.12);
-      --red:        #b81e1e;
-      --red-dim:    rgba(184, 30, 30, 0.12);
-      --text:       #e2e8f0;
-      --text-muted: #718096;
-      --border:     rgba(52, 211, 153, 0.15);
-      --border-red: rgba(184, 30, 30, 0.3);
-      --radius:     8px;
+      --paper:   #F1F3F7;
+      --sheet:   #FFFFFF;
+      --ink:     #131A30;
+      --muted:   #5B6580;
+      --blue:    #2F4A8A;
+      --rule:    #CDD3E0;
+      --marker:  #E2A91E;
+      --marker-ink: #131A30;
+      --pattern: rgba(47, 74, 138, 0.16);
+      --mono: 'Martian Mono', ui-monospace, monospace;
+      --sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
+      --gutter: clamp(1rem, 4vw, 3rem);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --paper:   #0F1528;
+        --sheet:   #161E36;
+        --ink:     #E7EBF4;
+        --muted:   #9AA3BD;
+        --blue:    #8CA6E8;
+        --rule:    #2A3452;
+        --marker:  #EDB938;
+        --marker-ink: #131A30;
+        --pattern: rgba(140, 166, 232, 0.13);
+      }
+    }
+    :root[data-theme="dark"] {
+      --paper:   #0F1528;
+      --sheet:   #161E36;
+      --ink:     #E7EBF4;
+      --muted:   #9AA3BD;
+      --blue:    #8CA6E8;
+      --rule:    #2A3452;
+      --marker:  #EDB938;
+      --marker-ink: #131A30;
+      --pattern: rgba(140, 166, 232, 0.13);
     }
 
     html { scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
     body {
-      font-family: 'Inter', sans-serif;
-      background: var(--bg);
-      color: var(--text);
+      font-family: var(--sans);
+      font-size: 1.0625rem;
       line-height: 1.6;
+      background: var(--paper);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* Nav */
-    nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      background: var(--bg-nav);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-    }
-    .nav-inner {
-      max-width: 1100px; margin: 0 auto;
-      padding: 0 2rem;
-      height: 60px;
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .nav-logo {
-      font-weight: 700; font-size: 1.1rem; color: var(--accent);
-      text-decoration: none; letter-spacing: 0.04em;
-    }
-    .nav-links { display: flex; gap: 2rem; list-style: none; }
-    .nav-links a {
-      color: var(--text-muted); text-decoration: none;
-      font-size: 0.9rem; font-weight: 500;
-      transition: color 0.2s;
-    }
-    .nav-links a:hover { color: var(--text); }
+    a { color: var(--blue); text-underline-offset: 0.2em; text-decoration-thickness: 1px; }
+    a:hover { text-decoration-thickness: 2px; }
+    :focus-visible { outline: 2px solid var(--marker); outline-offset: 3px; border-radius: 2px; }
 
-    /* Hero */
-    .hero {
-      min-height: 100vh;
-      display: flex; align-items: center; justify-content: center;
-      text-align: center;
-      padding: 6rem 2rem 4rem;
-      position: relative;
-      overflow: hidden;
+    code, pre, kbd { font-family: var(--mono); font-variation-settings: "wdth" 85; }
+    p code, li code, td code, dd code { font-size: 0.82em; }
+
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 0 var(--gutter); }
+
+    .security {
+      background-color: var(--sheet);
+      background-image:
+        repeating-linear-gradient(45deg, var(--pattern) 0 1px, transparent 1px 7px),
+        repeating-linear-gradient(-45deg, var(--pattern) 0 1px, transparent 1px 7px);
     }
-    .hero::before {
-      content: '';
-      position: absolute; inset: 0;
-      background:
-        radial-gradient(ellipse 60% 50% at 50% 0%, rgba(52,211,153,0.07) 0%, transparent 70%),
-        radial-gradient(ellipse 40% 30% at 80% 80%, rgba(184,30,30,0.06) 0%, transparent 60%);
-      pointer-events: none;
+
+    header.top {
+      border-bottom: 1px solid var(--rule);
     }
-    .hero-badge {
-      display: inline-block;
-      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--accent);
-      border: 1px solid var(--border);
-      border-radius: 99px;
-      padding: 0.3rem 0.9rem;
+    .top .wrap {
+      display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;
+      min-height: 64px;
+    }
+    .wordmark {
+      font-family: var(--mono);
+      font-variation-settings: "wdth" 80;
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .wordmark span { color: var(--muted); font-weight: 400; }
+    .top nav ul { display: flex; gap: 1.75rem; list-style: none; }
+    .top nav a { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+    .top nav a:hover { color: var(--ink); }
+    @media (max-width: 720px) { .top nav { display: none; } }
+
+    .hero { padding: clamp(3rem, 8vw, 6.5rem) 0 clamp(3rem, 7vw, 5.5rem); }
+    .hero .wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 11fr) minmax(0, 13fr);
+      gap: clamp(2rem, 5vw, 4.5rem);
+      align-items: center;
+    }
+    @media (max-width: 940px) { .hero .wrap { grid-template-columns: minmax(0, 1fr); } }
+
+    h1, h2, h3 { font-family: var(--mono); font-weight: 700; letter-spacing: -0.02em; }
+    h1 span { display: block; white-space: nowrap; }
+    h1 {
+      font-variation-settings: "wdth" 75;
+      font-size: clamp(1.75rem, 3.5vw, 2.6rem);
+      line-height: 1.08;
       margin-bottom: 1.5rem;
     }
-    .hero h1 {
-      font-size: clamp(2.8rem, 7vw, 5rem);
-      font-weight: 700;
-      line-height: 1.1;
-      letter-spacing: -0.02em;
-      margin-bottom: 1.25rem;
-    }
-    .hero h1 span { color: var(--accent); }
-    .hero p {
-      font-size: clamp(1rem, 2vw, 1.2rem);
-      color: var(--text-muted);
-      max-width: 620px; margin: 0 auto 2.5rem;
-    }
-    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .lede { font-size: 1.2rem; color: var(--muted); max-width: 34em; margin-bottom: 2rem; }
+    .lede code { color: var(--ink); }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
     .btn {
       display: inline-flex; align-items: center; gap: 0.5rem;
-      padding: 0.75rem 1.75rem;
-      border-radius: var(--radius);
-      font-size: 0.95rem; font-weight: 600;
-      text-decoration: none;
-      transition: all 0.2s;
-      cursor: pointer;
-    }
-    .btn-primary {
-      background: var(--accent); color: #0d0d1a;
-      border: 1px solid var(--accent);
-    }
-    .btn-primary:hover { background: #5eead4; border-color: #5eead4; }
-    .btn-ghost {
-      background: transparent; color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
-
-    .hero-meta {
-      margin-top: 3rem;
-      display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;
-    }
-    .badge-img { height: 20px; }
-
-    /* Section base */
-    section { padding: 6rem 2rem; }
-    .container { max-width: 1100px; margin: 0 auto; }
-    .section-label {
-      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--red);
-      margin-bottom: 0.75rem;
-    }
-    .section-title {
-      font-size: clamp(1.8rem, 3.5vw, 2.5rem);
-      font-weight: 700; letter-spacing: -0.02em;
-      margin-bottom: 1rem;
-    }
-    .section-subtitle {
-      color: var(--text-muted); font-size: 1.05rem;
-      max-width: 560px; margin-bottom: 3rem;
-    }
-
-    /* Features */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 1.25rem;
-    }
-    .feature-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.75rem;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    .feature-card:hover {
-      border-color: var(--accent);
-      box-shadow: 0 0 20px rgba(52,211,153,0.06);
-    }
-    .feature-icon { font-size: 1.6rem; margin-bottom: 1rem; }
-    .feature-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
-    .feature-card p { font-size: 0.9rem; color: var(--text-muted); }
-
-    /* How it works */
-    .how-bg { background: var(--bg-card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-
-    .how-layout {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 4rem;
-      align-items: start;
-    }
-    @media (max-width: 800px) { .how-layout { grid-template-columns: 1fr; gap: 2.5rem; } }
-
-    .steps { display: flex; flex-direction: column; gap: 2rem; }
-    .step { display: flex; gap: 1.25rem; align-items: flex-start; }
-    .step-number {
-      font-size: 1.5rem; font-weight: 700;
-      font-family: 'JetBrains Mono', monospace;
-      line-height: 1; flex-shrink: 0;
-      width: 2.5rem; text-align: right;
-      -webkit-text-stroke: 1px rgba(52,211,153,0.35);
-      color: transparent;
-    }
-    .step-body h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.3rem; }
-    .step-body p { font-size: 0.9rem; color: var(--text-muted); }
-
-    .how-code { position: sticky; top: 80px; }
-    .how-code .code-block { background: #080814; }
-
-    /* Code blocks */
-    .code-block {
-      background: #080814;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.5rem;
-    }
-    .code-block .code-label {
-      font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--text-muted);
-      margin-bottom: 0.75rem;
-      display: flex; align-items: center; gap: 0.5rem;
-    }
-    .code-block .code-label span { color: var(--accent); }
-    pre {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.8rem;
-      line-height: 1.7;
-      overflow-x: auto;
-    }
-    .kw  { color: #34d399; }
-    .str { color: #a3e635; }
-    .key { color: #e2e8f0; }
-    .cmt { color: #4a5568; }
-    .cmd { color: #93c5fd; }
-    .out { color: #718096; }
-
-    /* Syntax section */
-    .code-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
-    }
-    @media (max-width: 700px) { .code-grid { grid-template-columns: 1fr; } }
-
-    /* Install */
-    .install-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 1.25rem;
-      margin-bottom: 1.25rem;
-    }
-    .install-card {
-      background: #080814;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-    .platform-header {
-      display: flex; align-items: center; gap: 0.6rem;
-      padding: 0.75rem 1.25rem;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-card);
-    }
-    .platform-name { font-weight: 600; font-size: 0.9rem; }
-    .platform-sub {
-      font-size: 0.75rem; color: var(--text-muted);
-      font-family: 'JetBrains Mono', monospace;
-      margin-left: auto;
-    }
-    .install-cmd-block {
-      display: flex; align-items: center;
-      padding: 1.1rem 1.25rem;
-      gap: 1rem;
-    }
-    .install-cmd-block pre {
-      flex: 1;
-      font-size: 0.78rem;
-      white-space: nowrap;
-      overflow-x: auto;
-      color: var(--accent);
-    }
-    .copy-btn {
-      flex-shrink: 0;
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
+      font-family: var(--sans); font-weight: 600; font-size: 1rem;
+      padding: 0.7rem 1.3rem;
       border-radius: 4px;
-      padding: 0.3rem 0.7rem;
-      font-size: 0.75rem; font-weight: 600;
+      text-decoration: none;
+      border: 1.5px solid var(--ink);
+      color: var(--ink);
+      background: transparent;
       cursor: pointer;
-      transition: all 0.2s;
-      font-family: 'Inter', sans-serif;
     }
-    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .copy-btn.copied { border-color: var(--accent); color: var(--accent); }
+    .btn:hover { background: var(--ink); color: var(--paper); }
+    .btn-solid { background: var(--ink); color: var(--paper); }
+    .btn-solid:hover { background: var(--blue); border-color: var(--blue); color: var(--paper); }
 
-    /* Download */
-    .download-grid {
+    .envelope {
+      border: 1.5px solid var(--ink);
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 10px 10px 0 -1px var(--rule);
+    }
+    .env-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+      padding: 0.65rem 0.9rem 0.65rem 1.1rem;
+      background: var(--ink); color: var(--paper);
+    }
+    .env-bar .file { font-family: var(--mono); font-size: 0.85rem; font-variation-settings: "wdth" 85; }
+    .switch { display: inline-flex; border: 1px solid rgba(255,255,255,0.35); border-radius: 4px; padding: 2px; }
+    .switch button {
+      font: 600 0.85rem var(--sans);
+      background: transparent; color: inherit; border: 0;
+      padding: 0.35rem 0.8rem; border-radius: 3px; cursor: pointer;
+      opacity: 0.75;
+    }
+    .switch button[aria-pressed="true"] { background: var(--marker); color: var(--marker-ink); opacity: 1; }
+    .switch button:focus-visible { outline-offset: 1px; }
+
+    .env-body { padding: 1.4rem 1.1rem 1.2rem; }
+    .env-lines {
+      font-family: var(--mono);
+      font-variation-settings: "wdth" 85;
+      font-size: clamp(0.72rem, 1.45vw, 0.86rem);
+      line-height: 2.1;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .env-lines .k { color: var(--ink); font-weight: 600; }
+    .env-lines .eq { color: var(--muted); }
+    .ref { color: var(--blue); }
+    .res { display: none; }
+    .res mark {
+      background: var(--marker); color: var(--marker-ink);
+      padding: 0.1em 0.35em; border-radius: 2px;
+      letter-spacing: 0.08em;
+    }
+    .res .src { color: var(--muted); margin-left: 0.6em; }
+    .plain { color: var(--ink); }
+
+    .envelope[data-view="run"] .ref { display: none; }
+    .envelope[data-view="run"] .res { display: inline; }
+    .envelope[data-view="run"] .res mark { animation: stamp 0.5s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i) * 110ms); }
+    @keyframes stamp {
+      from { clip-path: inset(0 100% 0 0); }
+      to   { clip-path: inset(0 0 0 0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .envelope[data-view="run"] .res mark { animation: none; }
+    }
+
+    .env-caption {
+      margin-top: 1.1rem; padding-top: 0.9rem;
+      border-top: 1px dashed var(--rule);
+      font-size: 0.95rem; color: var(--ink);
+      background: var(--sheet);
+      min-height: 3.2em;
+    }
+    .env-caption code { font-size: 0.85em; }
+
+    section.band { padding: clamp(3.5rem, 8vw, 6rem) 0; border-top: 1px solid var(--rule); }
+    .split {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1.25rem;
+      grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+      gap: clamp(1.5rem, 4vw, 4rem);
     }
-    .download-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 2rem 1.75rem;
-      display: flex; flex-direction: column; gap: 1rem;
-      transition: border-color 0.2s;
+    @media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); } }
+    h2 {
+      font-variation-settings: "wdth" 78;
+      font-size: clamp(1.5rem, 2.8vw, 2.1rem);
+      line-height: 1.15;
     }
-    .download-card:hover { border-color: var(--accent); }
-    .download-card .platform {
-      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--text-muted);
-    }
-    .download-card h3 { font-size: 1.1rem; font-weight: 600; }
-    .download-card .ext {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.8rem; color: var(--accent);
-    }
-    .download-card .btn { align-self: flex-start; margin-top: auto; }
+    .split > header p { color: var(--muted); margin-top: 1rem; max-width: 26em; }
 
-    /* About strip */
-    .about-strip {
-      border-top: 1px solid var(--border-red);
-      background: var(--red-dim);
+    .steps { list-style: none; counter-reset: step; display: grid; gap: 2.25rem; }
+    .steps li { counter-increment: step; display: grid; grid-template-columns: 3.2rem minmax(0, 1fr); gap: 1rem; }
+    .steps li::before {
+      content: counter(step);
+      font-family: var(--mono); font-weight: 700; font-size: 1.1rem;
+      width: 2.4rem; height: 2.4rem;
+      display: grid; place-items: center;
+      border: 1.5px solid var(--ink); border-radius: 50%;
     }
+    .steps h3 { font-size: 1.05rem; font-variation-settings: "wdth" 85; margin-bottom: 0.35rem; line-height: 1.4; padding-top: 0.35rem; }
+    .steps p { color: var(--muted); max-width: 38em; }
+    .cmdline {
+      margin-top: 0.75rem;
+      display: inline-block;
+      font-family: var(--mono); font-variation-settings: "wdth" 85; font-size: 0.88rem;
+      background: var(--ink); color: var(--paper);
+      padding: 0.45rem 0.8rem; border-radius: 4px;
+    }
+
+    .providers { width: 100%; border-collapse: collapse; font-size: 0.98rem; }
+    .providers th {
+      text-align: left; font-weight: 600; color: var(--muted); font-size: 0.9rem;
+      padding: 0 1rem 0.7rem 0; border-bottom: 1.5px solid var(--ink);
+    }
+    .providers td { padding: 0.9rem 1rem 0.9rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+    .providers td:first-child code { font-weight: 700; font-size: 0.9rem; color: var(--ink); }
+    .providers td:last-child code { color: var(--blue); font-size: 0.8rem; white-space: nowrap; }
+    .providers .os { color: var(--muted); white-space: nowrap; }
+    @media (max-width: 760px) {
+      .providers thead { display: none; }
+      .providers, .providers tbody, .providers tr, .providers td { display: block; }
+      .providers tr { padding: 1rem 0; border-bottom: 1px solid var(--rule); }
+      .providers td { border: 0; padding: 0.15rem 0; }
+      .providers td:last-child code { white-space: normal; word-break: break-all; }
+    }
+
+    .agents .moments { list-style: none; display: grid; gap: 2.5rem; }
+    .moment { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 1.5rem 2rem; align-items: start; }
+    @media (max-width: 760px) { .moment { grid-template-columns: minmax(0, 1fr); } }
+    .moment h3 { font-size: 1.05rem; font-variation-settings: "wdth" 85; line-height: 1.4; margin-bottom: 0.4rem; }
+    .moment p { color: var(--muted); }
+    .agent-view {
+      border: 1.5px solid var(--ink); border-radius: 6px; overflow: hidden; background: var(--sheet);
+    }
+    .agent-view .who {
+      font-family: var(--mono); font-variation-settings: "wdth" 85; font-size: 0.8rem;
+      padding: 0.5rem 1rem; background: var(--ink); color: var(--paper);
+    }
+    .agent-view pre { font-size: 0.8rem; line-height: 1.85; padding: 0.9rem 1rem; overflow-x: auto; }
+    .agent-view .c { color: var(--muted); }
+    .agent-view .ref { color: var(--blue); }
+    .agent-view mark { background: var(--marker); color: var(--marker-ink); padding: 0.05em 0.3em; border-radius: 2px; }
+    .dialog-sketch { padding: 1rem 1.1rem 1.1rem; font-size: 0.95rem; }
+    .dialog-sketch strong { display: block; margin-bottom: 0.6rem; }
+    .dialog-sketch dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.25rem 0.9rem; margin-bottom: 1rem; }
+    .dialog-sketch dt { color: var(--muted); }
+    .dialog-sketch dd code { font-size: 0.8rem; word-break: break-all; }
+    .dialog-sketch .buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .dialog-sketch .buttons span {
+      border: 1.5px solid var(--ink); border-radius: 4px; padding: 0.3rem 0.8rem; font-weight: 600; font-size: 0.88rem;
+    }
+    .dialog-sketch .buttons .primary { background: var(--ink); color: var(--paper); }
+    .dialog-sketch .buttons .plain-text { border: 0; padding: 0.3rem 0; font-weight: 400; color: var(--muted); }
+
+    .reasons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem 3rem; }
+    @media (max-width: 640px) { .reasons { grid-template-columns: minmax(0, 1fr); } }
+    .reasons dt { font-weight: 700; margin-bottom: 0.35rem; }
+    .reasons dd { color: var(--muted); }
+
+    .sample {
+      border: 1.5px solid var(--ink); border-radius: 6px; overflow: hidden;
+    }
+    .sample + .sample { margin-top: 1.25rem; }
+    .sample figcaption {
+      font-family: var(--mono); font-variation-settings: "wdth" 85; font-size: 0.82rem;
+      padding: 0.55rem 1rem; background: var(--ink); color: var(--paper);
+    }
+    .sample pre {
+      font-size: 0.84rem; line-height: 1.85;
+      padding: 1.1rem 1rem; overflow-x: auto;
+      background: var(--sheet);
+    }
+    .sample .c { color: var(--muted); }
+    .sample .k { font-weight: 600; }
+    .after { margin-top: 1.25rem; }
+
+    .install { display: grid; gap: 1rem; }
+    .install-row {
+      display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.6rem 1rem;
+      border: 1.5px solid var(--ink); border-radius: 6px; padding: 0.75rem 0.75rem 0.75rem 1rem;
+      background: var(--sheet);
+    }
+    .install-row .os { font-weight: 700; }
+    .install-row pre { grid-column: 1 / -1; grid-row: 2; font-size: 0.82rem; white-space: pre-wrap; word-break: break-all; padding: 0.2rem 0; }
+    .copy {
+      font: 600 0.88rem var(--sans);
+      border: 1.5px solid var(--ink); background: transparent; color: var(--ink);
+      border-radius: 4px; padding: 0.4rem 0.85rem; cursor: pointer; min-width: 5.5rem;
+    }
+    .copy:hover { background: var(--ink); color: var(--paper); }
+    .copy[data-done] { background: var(--marker); border-color: var(--marker); color: var(--marker-ink); }
+    .fine { margin-top: 1.5rem; color: var(--muted); font-size: 0.95rem; max-width: 44em; }
+    .fine + .fine { margin-top: 0.75rem; }
+
+    .about-strip { border-top: 1.5px solid var(--ink); }
     .about-inner {
-      max-width: 1100px; margin: 0 auto;
-      padding: 3rem 2rem;
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 2rem; flex-wrap: wrap;
+      display: flex; align-items: center; justify-content: space-between; gap: 2rem; flex-wrap: wrap;
+      padding: 2.75rem 0;
     }
-    .about-inner p { color: var(--text-muted); font-size: 0.95rem; max-width: 520px; }
-    .about-inner p a { color: var(--red); text-decoration: none; font-weight: 500; }
-    .about-inner p a:hover { text-decoration: underline; }
-    .about-links { display: flex; gap: 1rem; flex-shrink: 0; }
+    .about-inner p {
+      max-width: 36em; background: var(--sheet); padding: 1.1rem 1.25rem;
+      border: 1px solid var(--rule); border-radius: 6px;
+    }
+    .about-links { display: flex; gap: 0.75rem; flex-wrap: wrap; }
 
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 2rem;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-    }
-    footer a { color: var(--accent); text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
-    .footer-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; max-width: 1100px; margin: 0 auto; }
-
-    /* Responsive */
-    @media (max-width: 600px) {
-      .nav-links { display: none; }
-      .hero h1 { font-size: 2.4rem; }
-      .about-inner { flex-direction: column; }
-    }
+    footer { border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.92rem; }
+    .footer-inner { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.75rem 0; }
+    .footer-inner nav { display: flex; gap: 1.25rem; }
   </style>
 </head>
 <body>
 
-<!-- Nav -->
-<nav>
-  <div class="nav-inner">
-    <a href="#" class="nav-logo">DesktopSecrets</a>
-    <ul class="nav-links">
-      <li><a href="#features">Features</a></li>
-      <li><a href="#how">How it works</a></li>
-      <li><a href="#providers">Providers</a></li>
-      <li><a href="#syntax">Syntax</a></li>
-      <li><a href="#install">Install</a></li>
-      <li><a href="#download">Download</a></li>
-    </ul>
+<header class="top">
+  <div class="wrap">
+    <a href="#" class="wordmark">DesktopSecrets<span>/tplenv</span></a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#agents">AI agents</a></li>
+        <li><a href="#providers">Providers</a></li>
+        <li><a href="#aliases">Aliases</a></li>
+        <li><a href="#install">Install</a></li>
+      </ul>
+    </nav>
   </div>
-</nav>
+</header>
 
-<!-- Hero -->
-<section class="hero">
-  <div>
-    <div class="hero-badge">Open Source &middot; Go &middot; KeePass &middot; AWS &middot; Azure &middot; GCP &middot; Vault &middot; 1Password &middot; Keychain &middot; WinCred &middot; dotenv</div>
-    <h1>Keep secrets out of<br><span>your .env files.</span></h1>
-    <p>Plaintext credentials in .env files leak onto hard drives, into backups, and through careless commits. DesktopSecrets replaces them with references your team can safely commit — and resolves them at runtime from whichever vault you trust: local (KeePass, Keychain, WinCred) or cloud (AWS, Azure, GCP, HashiCorp Vault, 1Password).</p>
-    <div class="hero-actions">
-      <a href="#install" class="btn btn-primary">
-        &darr; Install
-      </a>
-      <a href="https://github.com/it-atelier-gn/desktop-secrets" class="btn btn-ghost">
-        View on GitHub
-      </a>
-    </div>
-    <div class="hero-meta">
-      <img src="https://github.com/it-atelier-gn/desktop-secrets/actions/workflows/ci.yml/badge.svg" alt="Build" class="badge-img" />
-      <img src="https://img.shields.io/github/go-mod/go-version/it-atelier-gn/desktop-secrets" alt="Go" class="badge-img" />
-      <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT" class="badge-img" />
-    </div>
-  </div>
-</section>
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <h1><span>Commit the .env.</span> <span>Keep the secrets.</span></h1>
+        <p class="lede">Write references like <code>keepass(…)</code> or <code>awssm(…)</code> into a <code>.env.tpl</code>, check it into git, and let <code>tplenv</code> resolve them when your process starts. The values come from KeePass, your OS credential store or your cloud vault, and an AI agent working in your repository only ever sees the references.</p>
+        <div class="actions">
+          <a href="#install" class="btn btn-solid">Install</a>
+          <a href="https://github.com/it-atelier-gn/desktop-secrets" class="btn">Source on GitHub</a>
+        </div>
+      </div>
 
-<!-- Features -->
-<section id="features">
-  <div class="container">
-    <div class="section-label">Features</div>
-    <h2 class="section-title">Everything a plaintext .env gets wrong, fixed.</h2>
-    <p class="section-subtitle">No secrets on disk. No cloud middleman. No friction.</p>
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f6ab;</div>
-        <h3>No secrets on your hard drive</h3>
-        <p>Your .env.tpl contains only references, never real values. Secrets are resolved in memory at runtime and injected directly into your process — nothing written to disk.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f4c2;</div>
-        <h3>Check templates into git. Share with your team.</h3>
-        <p>A .env.tpl without real credentials is safe to commit. Your whole team works from the same template — each person's local vault provides their own credentials.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f511;</div>
-        <h3>KeePass — battle-tested, open-source, yours</h3>
-        <p>KeePass has been audited for decades. It's offline, open-source, and your data stays exactly where you put it. No subscription, no vendor lock-in, no data sovereignty concerns.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x23f3;</div>
-        <h3>Cached unlocks. No nagging.</h3>
-        <p>A background daemon caches unlocked vaults for a configurable TTL. Enter your master password once — it stays available for the rest of your session without repeated prompts.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1fa9f;</div>
-        <h3>Windows Credential Manager — zero setup</h3>
-        <p>On Windows, use the built-in credential store you already have. <code>wincred(target)</code> retrieves passwords and usernames stored via <code>cmdkey</code> or the Credential Manager GUI — no extra tools, no master password.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f9e9;</div>
-        <h3>Built for extensibility</h3>
-        <p>The provider interface is open. Add your own — HashiCorp Vault, AWS Secrets Manager, 1Password — with a small Go interface. Multiple providers can be mixed freely in a single template.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f916;</div>
-        <h3>Safe secret injection for AI agents</h3>
-        <p>AI coding agents and automation pipelines need API keys. <code>tplenv run</code> injects secrets into the agent process without writing them to disk or leaking them into the agent's file context.</p>
+      <div class="envelope" id="envelope" data-view="git">
+        <div class="env-bar">
+          <span class="file">.env.tpl</span>
+          <div class="switch" role="group" aria-label="Show the file as">
+            <button type="button" data-view="git" aria-pressed="true">In git</button>
+            <button type="button" data-view="run" aria-pressed="false">In the process</button>
+          </div>
+        </div>
+        <div class="env-body security">
+<div class="env-lines"><span class="k">DATABASE_URL</span><span class="eq">=</span><span class="ref">keepass(&amp;personal|/Dev/postgres)</span><span class="res" style="--i:0"><mark aria-label="hidden value">••••••••••••••</mark><span class="src">KeePass</span></span>
+<span class="k">AWS_SECRET_ACCESS_KEY</span><span class="eq">=</span><span class="ref">awssm(MyApp/Prod|secret_key)</span><span class="res" style="--i:1"><mark aria-label="hidden value">••••••••••••</mark><span class="src">AWS</span></span>
+<span class="k">GH_TOKEN</span><span class="eq">=</span><span class="ref">op(Private/GitHub Token|credential)</span><span class="res" style="--i:2"><mark aria-label="hidden value">••••••••••</mark><span class="src">1Password</span></span>
+<span class="k">DEPLOY_TOKEN</span><span class="eq">=</span><span class="ref">user(Enter deploy token)</span><span class="res" style="--i:3"><mark aria-label="hidden value">••••••••</mark><span class="src">typed in</span></span>
+<span class="k">APP_ENV</span><span class="eq">=</span><span class="plain">production</span></div>
+          <p class="env-caption" id="env-caption" aria-live="polite">This is the whole file. Nothing in it unlocks anything, so it can sit in your repository next to the code.</p>
+        </div>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<!-- How it works -->
-<section id="how" class="how-bg">
-  <div class="container">
-    <div class="section-label">How it works</div>
-    <h2 class="section-title">One command. Secrets injected.</h2>
-    <p class="section-subtitle" style="margin-bottom:3.5rem;">Write a template, run your tool through <code>tplenv run</code> — that's the whole workflow.</p>
-    <div class="how-layout">
-      <div class="steps">
-        <div class="step">
-          <div class="step-number">01</div>
-          <div class="step-body">
+  <section class="band" id="how">
+    <div class="wrap split">
+      <header>
+        <h2>How it works</h2>
+        <p>Three steps, and the second one is the only command you type.</p>
+      </header>
+      <ol class="steps">
+        <li>
+          <div>
             <h3>Write a .env.tpl</h3>
-            <p>Replace every credential with a secret reference. The file contains no real values — it's safe to commit and share.</p>
+            <p>Replace each credential with a reference to where it lives. Plain values stay as they are. Everyone on the team uses the same file; each person's own vault supplies their credentials.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Start your command through tplenv</h3>
+            <p>A background process opens the vaults the template needs. You unlock a vault once, and it stays open for the time you set in the tray settings.</p>
+            <span class="cmdline">tplenv run npm start</span>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Your program starts with the variables set</h3>
+            <p>The resolved values go straight into the environment of the program you started. They are never written to a file.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="band agents" id="agents">
+    <div class="wrap split">
+      <header>
+        <h2>Working with AI coding agents</h2>
+        <p>An agent reads your repository, runs your commands and needs API keys to do it. Give it the keys it needs and nothing it can stumble on.</p>
+      </header>
+      <ol class="moments">
+        <li class="moment">
+          <div>
+            <h3>The agent reads your project</h3>
+            <p>It opens every file it thinks is relevant, <code>.env.tpl</code> included. All it finds there is where a key lives, never the key.</p>
+          </div>
+          <div class="agent-view">
+            <div class="who">what the agent sees in .env.tpl</div>
+<pre>OPENAI_API_KEY=<span class="ref">keepass(&amp;personal|/AI/OpenAI)</span>
+STRIPE_KEY=<span class="ref">awssm(Shop/Stripe|test_key)</span></pre>
+          </div>
+        </li>
+        <li class="moment">
+          <div>
+            <h3>You start it with the keys it needs</h3>
+            <p>Launch the agent through <code>tplenv run</code>. The resolved values sit in its environment, so the agent and every command it starts can use them.</p>
+          </div>
+          <div class="agent-view">
+            <div class="who">your terminal</div>
+<pre>tplenv run your-agent
+<span class="c"># inside the agent's session</span>
+OPENAI_API_KEY=<mark>••••••••••••</mark></pre>
+          </div>
+        </li>
+        <li class="moment">
+          <div>
+            <h3>It asks for more, you decide</h3>
+            <p>With approvals turned on, an agent that calls <code>getsec</code> on its own gets nothing until you answer this dialog. It shows which program asked and for which secret. Each decision is written to <code>audit.log</code>. The hardened build also asks for Windows Hello or a security key.</p>
+          </div>
+          <div class="agent-view">
+            <div class="who">DesktopSecrets</div>
+            <div class="dialog-sketch">
+              <strong>Allow secret access?</strong>
+              <dl>
+                <dt>Process:</dt><dd><code>C:\Program Files\Git\usr\bin\bash.exe</code></dd>
+                <dt>Secret reference:</dt><dd><code>keepass(&amp;cloud|/AWS/Prod/secret-key)</code></dd>
+              </dl>
+              <div class="buttons" aria-hidden="true">
+                <span class="primary">Allow</span><span class="plain-text">for 15 minutes</span><span>Deny</span><span>Forget</span>
+              </div>
+            </div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="band" id="providers">
+    <div class="wrap split">
+      <header>
+        <h2>Where secrets can come from</h2>
+        <p>Mix sources freely in one template. Each line resolves on its own.</p>
+      </header>
+      <div>
+        <table class="providers">
+          <thead>
+            <tr><th scope="col">Reference</th><th scope="col">Reads from</th><th scope="col">Runs on</th><th scope="col">Example</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>keepass</code></td><td>KeePass <code>.kdbx</code> vaults, with wildcards, attributes, aliases and chained unlocking</td><td class="os">All</td><td><code>keepass(vault.kdbx|/AWS/Prod/key)</code></td></tr>
+            <tr><td><code>wincred</code></td><td>Windows Credential Manager</td><td class="os">Windows</td><td><code>wincred(MyApp/DBPassword|username)</code></td></tr>
+            <tr><td><code>keychain</code></td><td>macOS login keychain</td><td class="os">macOS</td><td><code>keychain(MyApp|alice)</code></td></tr>
+            <tr><td><code>awssm</code></td><td>AWS Secrets Manager, with JSON field selection</td><td class="os">All</td><td><code>awssm(MyApp/DB|password)</code></td></tr>
+            <tr><td><code>awsps</code></td><td>AWS Parameter Store, SecureString included</td><td class="os">All</td><td><code>awsps(/myapp/prod/api-key)</code></td></tr>
+            <tr><td><code>azkv</code></td><td>Azure Key Vault</td><td class="os">All</td><td><code>azkv(my-vault/db-password)</code></td></tr>
+            <tr><td><code>gcpsm</code></td><td>Google Cloud Secret Manager</td><td class="os">All</td><td><code>gcpsm(my-project/api-key)</code></td></tr>
+            <tr><td><code>vault</code></td><td>HashiCorp Vault KV, with token or AppRole login</td><td class="os">All</td><td><code>vault(secret/data/myapp|password)</code></td></tr>
+            <tr><td><code>op</code></td><td>1Password, through the signed-in <code>op</code> CLI</td><td class="os">All</td><td><code>op(Private/GitHub Token|credential)</code></td></tr>
+            <tr><td><code>user</code></td><td>A prompt window; the value is typed in and stored nowhere</td><td class="os">All</td><td><code>user(Enter deploy token)</code></td></tr>
+          </tbody>
+        </table>
+        <p class="fine">Cloud sources use their standard sign-in, such as the AWS credential chain, an Azure CLI login or gcloud credentials. <a href="https://github.com/it-atelier-gn/desktop-secrets#secret-references">Full reference syntax in the README</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap split">
+      <header>
+        <h2>What you get</h2>
+      </header>
+      <dl class="reasons">
+        <div>
+          <dt>Nothing to leak from the disk</dt>
+          <dd>Backups, synced folders and a careless <code>git add .</code> only ever see references.</dd>
+        </div>
+        <div>
+          <dt>One unlock per session</dt>
+          <dd>Enter a master password once. The vault stays open for the time you choose, then locks again.</dd>
+        </div>
+        <div>
+          <dt>Approve each read if you want to</dt>
+          <dd>Turn on a confirmation dialog for every retrieval. The hardened build asks for Windows Hello or a security key each time.</dd>
+        </div>
+        <div>
+          <dt>Load into your current shell</dt>
+          <dd><code>tplenv --apply-one-liner</code> prints the command that sets the variables in the shell you are in, for sh, PowerShell and cmd.</dd>
+        </div>
+        <div>
+          <dt>One secret at a time</dt>
+          <dd><code>getsec</code> resolves a single reference, handy in scripts and CI steps.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="band" id="aliases">
+    <div class="wrap split">
+      <header>
+        <h2>Aliases and chained vaults</h2>
+        <p>Give vault files short names, and let one vault hold the master password of another. You unlock the first; the rest follow.</p>
+      </header>
+      <div>
+        <figure class="sample">
+          <figcaption>aliases.yaml</figcaption>
+<pre><span class="k">personal</span>: C:\Vaults\personal.kdbx
+
+<span class="k">cloud</span>:
+  <span class="k">file</span>: C:\Vaults\cloud.kdbx
+  <span class="k">master</span>: keepass(&amp;personal|Cloud Master)</pre>
+        </figure>
+        <figure class="sample">
+          <figcaption>.env.tpl</figcaption>
+<pre><span class="c"># opens personal.kdbx first, then cloud.kdbx with the password stored there</span>
+<span class="k">SECRET</span>=keepass(&amp;cloud|/Prod/api-key)</pre>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="install">
+    <div class="wrap split">
+      <header>
+        <h2>Install</h2>
+        <p>The script downloads the latest release, checks it against the published SHA256 sums and puts <code>tplenv</code> and <code>getsec</code> on your PATH.</p>
+      </header>
+      <div>
+        <div class="install">
+          <div class="install-row">
+            <span class="os">Windows</span>
+            <pre id="cmd-win">irm https://it-atelier-gn.github.io/desktop-secrets/install.ps1 | iex</pre>
+            <button type="button" class="copy" data-target="cmd-win">Copy</button>
+          </div>
+          <div class="install-row">
+            <span class="os">Linux</span>
+            <pre id="cmd-linux">curl -fsSL https://it-atelier-gn.github.io/desktop-secrets/install.sh | bash</pre>
+            <button type="button" class="copy" data-target="cmd-linux">Copy</button>
           </div>
         </div>
-        <div class="step">
-          <div class="step-number">02</div>
-          <div class="step-body">
-            <h3>Run your tool through <code>tplenv run</code></h3>
-            <p>DesktopSecrets connects to the background daemon, which unlocks your KeePass vault (prompting only when the cache is cold) and resolves every reference from the template.</p>
-          </div>
-        </div>
-        <div class="step">
-          <div class="step-number">03</div>
-          <div class="step-body">
-            <h3>Your process starts with secrets already in its environment</h3>
-            <p>Resolved values are injected as environment variables into the child process. Nothing is written to disk. The .env file your tool "sees" never exists as a file.</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="how-code">
-        <div class="code-block">
-          <div class="code-label">.env.tpl <span>&mdash; commit this</span></div>
-          <pre><span class="key">DATABASE_URL</span>=<span class="kw">keepass</span>(<span class="str">&amp;personal</span>|<span class="str">/Dev/postgres</span>|<span class="str">Notes</span>)
-<span class="key">AWS_ACCESS_KEY_ID</span>=<span class="kw">keepass</span>(<span class="str">&amp;cloud</span>|<span class="str">/AWS/Prod/access-key</span>)
-<span class="key">AWS_SECRET_ACCESS_KEY</span>=<span class="kw">keepass</span>(<span class="str">&amp;cloud</span>|<span class="str">/AWS/Prod/secret-key</span>)
-<span class="key">DEPLOY_TOKEN</span>=<span class="kw">user</span>(<span class="str">Enter deploy token</span>)
-<span class="key">APP_ENV</span>=<span class="str">production</span></pre>
-        </div>
-
-        <div class="code-block" style="margin-top:1rem;">
-          <div class="code-label">Terminal <span>&mdash; run anything through it</span></div>
-          <pre><span class="cmt"># Start your app with secrets injected</span>
-<span class="cmd">$ tplenv run -- npm start</span>
-
-<span class="cmt"># Run a database migration</span>
-<span class="cmd">$ tplenv run -- flyway migrate</span>
-
-<span class="cmt"># Launch an AI agent with its API keys</span>
-<span class="cmd">$ tplenv run -- claude --dangerously-skip-permissions</span>
-
-<span class="out">&#x2714; vault unlocked (cached 3h)</span>
-<span class="out">&#x2714; 4 secrets resolved</span>
-<span class="out">&#x2714; process started</span></pre>
-        </div>
+        <p class="fine">Read the scripts before you run them: <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.ps1">install.ps1</a>, <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.sh">install.sh</a>. Binaries for Windows and Linux (x64), including the hardened variant, are on the <a href="https://github.com/it-atelier-gn/desktop-secrets/releases/latest">releases page</a>.</p>
+        <p class="fine">To use DesktopSecrets from Go, run <code>go get github.com/it-atelier-gn/desktop-secrets</code> and follow <a href="https://github.com/it-atelier-gn/desktop-secrets#usage-as-library">the library notes</a>.</p>
       </div>
     </div>
-  </div>
-</section>
+  </section>
+</main>
 
-<!-- Providers -->
-<section id="providers">
-  <div class="container">
-    <div class="section-label">Providers</div>
-    <h2 class="section-title">Pick your secret source.</h2>
-    <p class="section-subtitle">Mix and match providers freely in a single template. Each reference resolves independently.</p>
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f511;</div>
-        <h3><code>keepass(...)</code> &mdash; KeePass</h3>
-        <p>Retrieve secrets from <code>.kdbx</code> vaults. Supports absolute paths, wildcards, attribute selection, aliases, and chained vault unlocking.</p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">keepass(vault.kdbx|/AWS/Prod/key)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1fa9f;</div>
-        <h3><code>wincred(...)</code> &mdash; Windows Credential Manager</h3>
-        <p>Retrieve passwords and usernames from the built-in Windows Credential Manager. No master password, no TTL — transparent once logged in. <em>Windows only.</em></p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">wincred(MyApp/DBPassword|username)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x2601;&#xfe0f;</div>
-        <h3><code>awssm(...)</code> &mdash; AWS Secrets Manager</h3>
-        <p>Retrieve secrets from AWS Secrets Manager. Supports raw string secrets and JSON field extraction. Uses the standard AWS credential chain — env vars, <code>~/.aws</code>, instance roles.</p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">awssm(MyApp/DB|password)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f4c4;</div>
-        <h3><code>awsps(...)</code> &mdash; AWS Parameter Store</h3>
-        <p>Retrieve parameters from AWS Systems Manager Parameter Store. SecureString parameters are always decrypted. Supports JSON field extraction.</p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">awsps(/myapp/prod/api-key)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f5dd;&#xfe0f;</div>
-        <h3><code>azkv(...)</code> &mdash; Azure Key Vault</h3>
-        <p>Retrieve secrets from Azure Key Vault. Uses <code>DefaultAzureCredential</code> — env vars, Azure CLI login, or managed identity. Optional JSON field extraction.</p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">azkv(my-vault/db-password)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x2601;&#xfe0f;</div>
-        <h3><code>gcpsm(...)</code> &mdash; GCP Secret Manager</h3>
-        <p>Retrieve secrets from Google Cloud Secret Manager. Uses Application Default Credentials (<code>gcloud auth</code> or <code>GOOGLE_APPLICATION_CREDENTIALS</code>). Version defaults to <code>latest</code>.</p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">gcpsm(my-project/api-key)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f3db;&#xfe0f;</div>
-        <h3><code>vault(...)</code> &mdash; HashiCorp Vault</h3>
-        <p>Retrieve secrets from HashiCorp Vault KV v2. Auth via <code>VAULT_TOKEN</code> or configured AppRole. Supports Vault Enterprise namespaces.</p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">vault(secret/data/myapp|password)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f511;</div>
-        <h3><code>op(...)</code> &mdash; 1Password</h3>
-        <p>Retrieve items from 1Password via the <code>op</code> CLI. Requires <code>op signin</code> on the local machine. Lightweight — no extra Go dependencies.</p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">op(Private/GitHub Token|credential)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f34e;</div>
-        <h3><code>keychain(...)</code> &mdash; macOS Keychain</h3>
-        <p>Retrieve passwords from the built-in macOS Keychain. No master password, transparent once logged in. Symmetric with <code>wincred</code>. <em>macOS only.</em></p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">keychain(MyApp|alice)</code></p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1f4ac;</div>
-        <h3><code>user(...)</code> &mdash; Interactive Prompt</h3>
-        <p>Show a GUI prompt and ask the user to type a secret. Useful for one-off tokens, OTPs, or anything that shouldn't be stored at all.</p>
-        <p style="margin-top:0.75rem;"><code style="color:var(--accent);font-size:0.8rem;">user(Enter deploy token)</code></p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Syntax -->
-<section id="syntax">
-  <div class="container">
-    <div class="section-label">Syntax</div>
-    <h2 class="section-title">Simple references. Powerful resolution.</h2>
-    <p class="section-subtitle">A compact expression language for retrieving secrets from any provider.</p>
-    <div class="code-grid">
-      <div class="code-block">
-        <div class="code-label">Secret references <span>&mdash; .env.tpl</span></div>
-        <pre><span class="cmt"># KeePass vault entry</span>
-<span class="key">API_KEY</span>=<span class="kw">keepass</span>(<span class="str">vault.kdbx</span>|<span class="str">/AWS/Prod/api-key</span>)
-
-<span class="cmt"># Wildcard matching</span>
-<span class="key">DB_PASS</span>=<span class="kw">keepass</span>(<span class="str">vault.kdbx</span>|<span class="str">/DB/**/password</span>)
-
-<span class="cmt"># Windows Credential Manager</span>
-<span class="key">DB_PASS</span>=<span class="kw">wincred</span>(<span class="str">MyApp/DBPassword</span>)
-<span class="key">DB_USER</span>=<span class="kw">wincred</span>(<span class="str">MyApp/DBPassword</span>|<span class="str">username</span>)
-
-<span class="cmt"># AWS Secrets Manager</span>
-<span class="key">API_KEY</span>=<span class="kw">awssm</span>(<span class="str">MyApp/ApiKey</span>)
-<span class="key">DB_PASS</span>=<span class="kw">awssm</span>(<span class="str">MyApp/DB</span>|<span class="str">password</span>)
-
-<span class="cmt"># AWS Parameter Store</span>
-<span class="key">DB_HOST</span>=<span class="kw">awsps</span>(<span class="str">/myapp/prod/db</span>|<span class="str">host</span>)
-
-<span class="cmt"># Azure Key Vault</span>
-<span class="key">API_KEY</span>=<span class="kw">azkv</span>(<span class="str">my-vault/api-key</span>)
-
-<span class="cmt"># GCP Secret Manager</span>
-<span class="key">DB_PASS</span>=<span class="kw">gcpsm</span>(<span class="str">my-project/db-pass</span>)
-
-<span class="cmt"># HashiCorp Vault (KV v2)</span>
-<span class="key">TOKEN</span>=<span class="kw">vault</span>(<span class="str">secret/data/myapp</span>|<span class="str">token</span>)
-
-<span class="cmt"># 1Password CLI</span>
-<span class="key">GH_TOKEN</span>=<span class="kw">op</span>(<span class="str">Private/GitHub Token</span>|<span class="str">credential</span>)
-
-<span class="cmt"># macOS Keychain</span>
-<span class="key">DB_PASS</span>=<span class="kw">keychain</span>(<span class="str">MyApp</span>|<span class="str">alice</span>)
-
-<span class="cmt"># Interactive prompt</span>
-<span class="key">TOKEN</span>=<span class="kw">user</span>(<span class="str">Enter deploy token</span>)</pre>
-      </div>
-      <div class="code-block">
-        <div class="code-label">Aliases <span>&mdash; aliases.yaml</span></div>
-        <pre><span class="cmt"># Simple file alias</span>
-<span class="key">personal</span>: <span class="str">C:\Vaults\personal.kdbx</span>
-
-<span class="cmt"># Alias with chained master password</span>
-<span class="key">cloud</span>:
-  <span class="key">file</span>: <span class="str">C:\Vaults\cloud.kdbx</span>
-  <span class="key">master</span>: <span class="kw">keepass</span>(<span class="str">&amp;personal</span>|<span class="str">Cloud Master</span>)
-
-<span class="cmt"># Usage in .env.tpl</span>
-<span class="key">SECRET</span>=<span class="kw">keepass</span>(<span class="str">&amp;cloud</span>|<span class="str">/Prod/api-key</span>)</pre>
-      </div>
-    </div>
-    <div style="margin-top:1.5rem;">
-      <a href="https://github.com/it-atelier-gn/desktop-secrets#-secret-references" class="btn btn-ghost">Full syntax docs &rarr;</a>
-    </div>
-  </div>
-</section>
-
-<!-- Install -->
-<section id="install">
-  <div class="container">
-    <div class="section-label">Install</div>
-    <h2 class="section-title">One command to get started.</h2>
-    <p class="section-subtitle">Downloads the latest release, verifies SHA256 checksums, and adds the tools to your PATH.</p>
-    <div class="install-grid">
-      <div class="install-card">
-        <div class="platform-header">
-          <span class="platform-name">Windows</span>
-          <span class="platform-sub">PowerShell</span>
-        </div>
-        <div class="install-cmd-block">
-          <pre id="cmd-win">irm https://it-atelier-gn.github.io/desktop-secrets/install.ps1 | iex</pre>
-          <button class="copy-btn" onclick="copyCmd('cmd-win', this)">Copy</button>
-        </div>
-      </div>
-      <div class="install-card">
-        <div class="platform-header">
-          <span class="platform-name">Linux</span>
-          <span class="platform-sub">bash</span>
-        </div>
-        <div class="install-cmd-block">
-          <pre id="cmd-linux">curl -fsSL https://it-atelier-gn.github.io/desktop-secrets/install.sh | bash</pre>
-          <button class="copy-btn" onclick="copyCmd('cmd-linux', this)">Copy</button>
-        </div>
-      </div>
-    </div>
-    <p style="font-size:0.85rem; color:var(--text-muted);">
-      Binaries are built by GitHub Actions from source.
-      <a href="https://github.com/it-atelier-gn/desktop-secrets/releases" style="color:var(--accent);">Browse releases</a>
-      &middot;
-      <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.ps1" style="color:var(--accent);">inspect install.ps1</a>
-      &middot;
-      <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.sh" style="color:var(--accent);">inspect install.sh</a>
-    </p>
-  </div>
-</section>
-
-<!-- Download -->
-<section id="download" class="how-bg">
-  <div class="container">
-    <div class="section-label">Download</div>
-    <h2 class="section-title">Get DesktopSecrets.</h2>
-    <p class="section-subtitle">All builds are produced by GitHub Actions from source. SHA256-verified.</p>
-    <div class="download-grid">
-      <div class="download-card">
-        <div class="platform">Windows</div>
-        <h3>getsec &amp; tplenv</h3>
-        <div class="ext">.exe &middot; x64</div>
-        <a href="https://github.com/it-atelier-gn/desktop-secrets/releases/latest" class="btn btn-primary">&darr; Download</a>
-      </div>
-      <div class="download-card">
-        <div class="platform">Linux</div>
-        <h3>getsec &amp; tplenv</h3>
-        <div class="ext">binary &middot; x64</div>
-        <a href="https://github.com/it-atelier-gn/desktop-secrets/releases/latest" class="btn btn-ghost">&darr; Download</a>
-      </div>
-      <div class="download-card">
-        <div class="platform">Go Module</div>
-        <h3>Use as library</h3>
-        <div class="ext">go get github.com/it-atelier-gn/desktop-secrets</div>
-        <a href="https://github.com/it-atelier-gn/desktop-secrets#usage-as-library" class="btn btn-ghost">Docs &rarr;</a>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- About strip -->
-<div class="about-strip">
-  <div class="about-inner">
+<div class="about-strip security">
+  <div class="wrap about-inner">
     <p>
-      Built by <a href="http://www.georg-nelles.de" target="_blank" rel="noopener">Georg Nelles</a> &mdash;
+      Built by <a href="http://www.georg-nelles.de" target="_blank" rel="noopener">Georg Nelles</a>,
       freelance software engineer specializing in automation, modernization, and pragmatic tooling.
       DesktopSecrets is open-source. Your secrets stay on your machine.
     </p>
     <div class="about-links">
-      <a href="http://www.georg-nelles.de" class="btn btn-ghost" target="_blank" rel="noopener">georg-nelles.de &rarr;</a>
-      <a href="https://github.com/it-atelier-gn" class="btn btn-ghost" target="_blank" rel="noopener">GitHub &rarr;</a>
+      <a href="http://www.georg-nelles.de" class="btn btn-solid" target="_blank" rel="noopener">georg-nelles.de</a>
+      <a href="https://github.com/it-atelier-gn" class="btn" target="_blank" rel="noopener">GitHub</a>
     </div>
   </div>
 </div>
 
-<!-- Footer -->
 <footer>
-  <div class="footer-inner">
-    <span>&copy; 2026 Georg Nelles &middot; MIT License</span>
-    <span>
-      <a href="https://github.com/it-atelier-gn/desktop-secrets">GitHub</a> &middot;
-      <a href="https://github.com/it-atelier-gn/desktop-secrets/releases">Releases</a> &middot;
+  <div class="wrap footer-inner">
+    <span>&copy; 2026 Georg Nelles, MIT License</span>
+    <nav aria-label="Project">
+      <a href="https://github.com/it-atelier-gn/desktop-secrets">GitHub</a>
+      <a href="https://github.com/it-atelier-gn/desktop-secrets/releases">Releases</a>
       <a href="https://github.com/it-atelier-gn/desktop-secrets/issues">Issues</a>
-    </span>
+    </nav>
   </div>
 </footer>
 
 <script>
-  function copyCmd(id, btn) {
-    var text = document.getElementById(id).textContent;
-    navigator.clipboard.writeText(text).then(function() {
-      btn.textContent = 'Copied!';
-      btn.classList.add('copied');
-      setTimeout(function() {
-        btn.textContent = 'Copy';
-        btn.classList.remove('copied');
-      }, 2000);
+  (function () {
+    var envelope = document.getElementById('envelope');
+    var caption = document.getElementById('env-caption');
+    var captions = {
+      git: 'This is the whole file. Nothing in it unlocks anything, so it can sit in your repository next to the code.',
+      run: 'After <code>tplenv run npm start</code>, npm sees real values. The file on disk has not changed.'
+    };
+    var buttons = envelope.querySelectorAll('.switch button');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var view = btn.getAttribute('data-view');
+        envelope.setAttribute('data-view', view);
+        buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b === btn)); });
+        caption.innerHTML = captions[view];
+      });
     });
-  }
+
+    document.querySelectorAll('.copy').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var text = document.getElementById(btn.getAttribute('data-target')).textContent;
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = 'Copied';
+          btn.setAttribute('data-done', '');
+          setTimeout(function () {
+            btn.textContent = 'Copy';
+            btn.removeAttribute('data-done');
+          }, 2000);
+        });
+      });
+    });
+  })();
 </script>
 </body>
 </html>
