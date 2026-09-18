@@ -48,6 +48,15 @@ LOG_LEVEL=debug
 `tplenv` prints the fully resolved environment.  
 Use `tplenv run` to execute a command with resolved variables injected.
 
+| Flag | Description |
+|------|-------------|
+| `--shell` | Shell syntax for the output: `auto`, `sh`, `pwsh` or `cmd` |
+| `--format` | Output format: `env`, `json` or `raw` |
+| `--only` | Comma-separated list of variables to include |
+| `--exclude` | Comma-separated list of variables to exclude |
+| `--apply-one-liner` | Print a command that loads the environment into the current shell, e.g. `tplenv --shell=pwsh env \| Invoke-Expression` |
+| `--version` | Print version and revision |
+
 ---
 
 ### *getsec*

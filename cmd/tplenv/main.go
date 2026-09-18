@@ -50,16 +50,8 @@ func main() {
 		shellToUse = shellFlag
 	}
 
-	// If apply-one-liner requested, print the one-liner and exit
 	if applyOneLiner {
-		// Determine exe name from os.Args[0] (strip path)
-		exeName := os.Args[0]
-		if strings.Contains(exeName, string(os.PathSeparator)) {
-			parts := strings.Split(exeName, string(os.PathSeparator))
-			exeName = parts[len(parts)-1]
-		}
-		one := oneLinerForShell(shellToUse, exeName)
-		fmt.Println(one)
+		fmt.Println(oneLinerForShell(shellToUse))
 		return
 	}
 
@@ -88,7 +80,6 @@ func main() {
 
 	parsed := env.ExpandClientEnv(env.ParseEnvBytes(out))
 
-	// Apply only/exclude filters
 	var onlyList, excludeList []string
 	if strings.TrimSpace(onlyFlag) != "" {
 		onlyList = strings.Split(onlyFlag, ",")
@@ -98,7 +89,6 @@ func main() {
 	}
 	parsed = filterEnv(parsed, onlyList, excludeList)
 
-	// If user asked for run
 	if len(args) > 0 && args[0] == "run" {
 		if len(args) < 2 {
 			log.Fatalf("run requires a command to execute")
@@ -116,7 +106,6 @@ func main() {
 		return
 	}
 
-	// Output format
 	switch strings.ToLower(strings.TrimSpace(formatFlag)) {
 	case "env":
 		printEnvForShell(parsed, shellToUse)
