@@ -10,8 +10,6 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/env"
 )
 
-// safeKey re-checks key validity before shell-format emission. The parser
-// already filters, but a future caller could bypass it.
 func safeKey(k string) bool { return env.IsValidKey(k) }
 
 func quoteForSh(v string) string {
@@ -85,13 +83,10 @@ func printEnvForShell(envMap map[string]string, shell string) {
 			fmt.Printf("set %s=%s\n", k, quoteForCmd(v))
 		}
 	default:
-		// fallback: print all
 		printEnvCommandsAll(envMap)
 	}
 }
 
-// filterEnv returns a new map containing only keys allowed by onlyList and not in excludeList.
-// If onlyList is empty, all keys are considered allowed before exclusion.
 func filterEnv(m map[string]string, onlyList, excludeList []string) map[string]string {
 	out := make(map[string]string, len(m))
 	onlySet := make(map[string]struct{})
@@ -133,22 +128,17 @@ func printJSON(envMap map[string]string) {
 	}
 }
 
-func oneLinerForShell(shell, exeName string) string {
-	// exeName should be the command the user runs (e.g., "tplenv" or "desktopsecrets").
-	// We include --shell explicitly to ensure deterministic output.
+const commandName = "tplenv"
+
+func oneLinerForShell(shell string) string {
 	switch shell {
 	case "sh":
-		// POSIX: eval "$(exe --shell=sh env)"
-		return fmt.Sprintf(`eval "$(%s --shell=sh env)"`, exeName)
+		return fmt.Sprintf(`eval "$(%s --shell=sh env)"`, commandName)
 	case "pwsh":
-		// PowerShell: exe --shell=pwsh env | Invoke-Expression
-		return fmt.Sprintf(`%s --shell=pwsh env | Invoke-Expression`, exeName)
+		return fmt.Sprintf(`%s --shell=pwsh env | Invoke-Expression`, commandName)
 	case "cmd":
-		// cmd.exe interactive: for /f "delims=" %L in ('exe --shell=cmd env') do @%L
-		// Note: inside a batch file you must double the % to %%L.
-		return fmt.Sprintf(`for /f "delims=" %%L in ('%s --shell=cmd env') do @%%L`, exeName)
+		return fmt.Sprintf(`for /f "delims=" %%L in ('%s --shell=cmd env') do @%%L`, commandName)
 	default:
-		// fallback: show all three suggestions
-		return fmt.Sprintf("# POSIX: eval \"$(%s env)\"\n# PowerShell: %s env | Invoke-Expression\n# cmd: for /f \"delims=\" %%L in ('%s env') do @%%L", exeName, exeName, exeName)
+		return fmt.Sprintf("# POSIX: eval \"$(%s env)\"\n# PowerShell: %s env | Invoke-Expression\n# cmd: for /f \"delims=\" %%L in ('%s env') do @%%L", commandName, commandName, commandName)
 	}
 }
