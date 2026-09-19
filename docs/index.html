@@ -198,6 +198,15 @@
     }
     .env-caption code { font-size: 0.85em; }
 
+    .film {
+      border: 1.5px solid var(--ink);
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 10px 10px 0 -1px var(--rule);
+      background: var(--ink);
+    }
+    .film video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+
     section.band { padding: clamp(3.5rem, 8vw, 6rem) 0; border-top: 1px solid var(--rule); }
     .split {
       display: grid;
@@ -339,6 +348,7 @@
     <a href="#" class="wordmark">DesktopSecrets<span>/tplenv</span></a>
     <nav aria-label="Sections">
       <ul>
+        <li><a href="#watch">Demo</a></li>
         <li><a href="#how">How it works</a></li>
         <li><a href="#agents">AI agents</a></li>
         <li><a href="#providers">Providers</a></li>
@@ -378,6 +388,20 @@
           <p class="env-caption" id="env-caption" aria-live="polite">This is the whole file. Nothing in it unlocks anything, so it can sit in your repository next to the code.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section class="band" id="watch">
+    <div class="wrap split">
+      <header>
+        <h2>See it in action</h2>
+        <p>From a template in git to resolved values in your process, shared across a team, with an approval dialog you can turn on for every read.</p>
+      </header>
+      <figure class="film">
+        <video controls playsinline preload="metadata" poster="tplenv-in-action.jpg" aria-label="tplenv resolving a .env.tpl into a running process">
+          <source src="tplenv-in-action.mp4" type="video/mp4" />
+        </video>
+      </figure>
     </div>
   </section>
 
