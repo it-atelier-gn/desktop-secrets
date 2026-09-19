@@ -206,6 +206,8 @@
       background: var(--ink);
     }
     .film video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+    .film-credit { margin-top: 0.9rem; font-size: 0.85rem; color: var(--muted); }
+    .film-credit a { color: inherit; }
 
     section.band { padding: clamp(3.5rem, 8vw, 6rem) 0; border-top: 1px solid var(--rule); }
     .split {
@@ -397,11 +399,14 @@
         <h2>See it in action</h2>
         <p>From a template in git to resolved values in your process, shared across a team, with an approval dialog you can turn on for every read.</p>
       </header>
-      <figure class="film">
-        <video controls playsinline preload="metadata" poster="tplenv-in-action.jpg" aria-label="tplenv resolving a .env.tpl into a running process">
-          <source src="tplenv-in-action.mp4" type="video/mp4" />
-        </video>
-      </figure>
+      <div>
+        <figure class="film">
+          <video controls playsinline preload="metadata" poster="tplenv-in-action.jpg" aria-label="tplenv resolving a .env.tpl into a running process">
+            <source src="tplenv-in-action.mp4" type="video/mp4" />
+          </video>
+        </figure>
+        <p class="film-credit">Music: “Happy Beats / Business Moves Vol. 12” by <a href="https://ende.app/en" rel="noopener">ende.app</a>, <a href="https://creativecommons.org/licenses/by/4.0/" rel="noopener">CC BY 4.0</a>.</p>
+      </div>
     </div>
   </section>
 
