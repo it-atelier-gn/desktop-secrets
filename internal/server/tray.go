@@ -225,7 +225,7 @@ func showAboutDialog() {
 		w := fyne.CurrentApp().NewWindow("About")
 		icon := fyne.NewStaticResource("icon.ico", assets.IconBytes)
 		w.SetIcon(icon)
-		w.Resize(fyne.NewSize(620, 250))
+		w.Resize(fyne.NewSize(500, 250))
 
 		version := widget.NewLabel(fmt.Sprintf("Version %s (%s)", version.Version, version.Revision))
 
@@ -241,6 +241,7 @@ func showAboutDialog() {
 			widget.NewLabel(""))
 
 		d := dialog.NewCustom("About DesktopSecrets", "OK", content, w)
+		d.Resize(fyne.NewSize(500, 250))
 
 		d.SetOnClosed(func() {
 			w.Close()
