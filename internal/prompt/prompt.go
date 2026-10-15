@@ -276,28 +276,30 @@ func buildKeePassUI(a fyne.App, w fyne.Window, opts *KeepassOptions, resultCh ch
 }
 
 func buildTTLSelect(current int) (*widget.Select, map[string]int) {
-	ttlSelect := widget.NewSelect(nil, nil)
 	ttlMap := make(map[string]int)
-	var labels []string
-
+	labels := make([]string, 0, len(static.TTLOptions))
 	for _, opt := range static.TTLOptions {
 		labels = append(labels, opt.Label)
 		ttlMap[opt.Label] = opt.Minutes
-		if opt.IsDefault {
-			ttlSelect.SetSelected(opt.Label)
-		}
 	}
 
-	ttlSelect.Options = labels
-
-	for label, mins := range ttlMap {
-		if mins == current {
-			ttlSelect.SetSelected(label)
-			break
-		}
-	}
+	ttlSelect := widget.NewSelect(labels, nil)
+	ttlSelect.SetSelected(ttlLabelFor(current))
 
 	return ttlSelect, ttlMap
+}
+
+func ttlLabelFor(current int) string {
+	def := ""
+	for _, opt := range static.TTLOptions {
+		if opt.Minutes == current {
+			return opt.Label
+		}
+		if opt.IsDefault {
+			def = opt.Label
+		}
+	}
+	return def
 }
 
 func boldCentered(text string) *widget.Label {
