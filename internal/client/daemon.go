@@ -2,49 +2,33 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 )
 
-// Start the daemon (tray) if it’s not running. Wait until /health OK or timeout.
 func EnsureDaemonRunning(ctx context.Context) (*shm.DaemonState, error) {
-	// 1) If we have shm state and health passes — we’re done.
 	if st, err := readStateFromShm(); err == nil {
 		if err := tryHealth(ctx, st); err == nil {
 			return st, nil
 		}
 	}
 
-	// 2) Spawn the daemon.
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command(exe, "--daemon")
-
-	// Detach/Hide window on Windows; fully detach on Unix.
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = utils.HideWindowSysProcAttr()
-	} else {
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		cmd.Stdin = nil
-		cmd.SysProcAttr = utils.DetachSysProcAttr()
+	if err := startDaemon(exe, utils.DaemonSysProcAttrs(), startCmd); err != nil {
+		return nil, err
 	}
 
-	// Start, not wait.
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start daemon: %w", err)
-	}
-
-	// 3) Wait for shm state then health OK.
 	deadline := time.Now().Add(8 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -61,4 +45,20 @@ func EnsureDaemonRunning(ctx context.Context) (*shm.DaemonState, error) {
 		return st, nil
 	}
 	return nil, fmt.Errorf("daemon did not become healthy: %v", lastErr)
+}
+
+func startCmd(cmd *exec.Cmd) error { return cmd.Start() }
+
+func startDaemon(exe string, attrs []*syscall.SysProcAttr, start func(*exec.Cmd) error) error {
+	var errs []error
+	for _, attr := range attrs {
+		cmd := exec.Command(exe, "--daemon")
+		cmd.SysProcAttr = attr
+		if err := start(cmd); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("failed to start daemon: %w", errors.Join(errs...))
 }

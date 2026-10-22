@@ -6,8 +6,8 @@ import "syscall"
 
 type sysProcAttr = syscall.SysProcAttr
 
-func DetachSysProcAttr() *sysProcAttr {
-	return &syscall.SysProcAttr{Setsid: true}
+func DaemonSysProcAttrs() []*sysProcAttr {
+	return []*sysProcAttr{{Setsid: true}}
 }
 
-func HideWindowSysProcAttr() *sysProcAttr { return nil }
+func JobStatus() string { return "" }

@@ -32,6 +32,9 @@ func RunDaemon() {
 		}
 	}
 	log.Printf("daemon starting: pid=%d version=%s (%s)", os.Getpid(), version.Version, version.Revision)
+	if status := utils.JobStatus(); status != "" {
+		log.Print(status)
+	}
 
 	if loaded := winenv.Hydrate(); len(loaded) > 0 {
 		log.Printf("env: hydrated %d variable(s) from the Windows registry", len(loaded))
