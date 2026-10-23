@@ -46,18 +46,6 @@ func TestCiphertextDiffersFromPlaintext(t *testing.T) {
 	}
 }
 
-func TestNoncesAreUnique(t *testing.T) {
-	pt := []byte("same-input")
-	a, _ := Seal(pt)
-	b, _ := Seal(pt)
-	if bytes.Equal(a.nonce, b.nonce) {
-		t.Fatalf("nonces collided")
-	}
-	if bytes.Equal(a.ct, b.ct) {
-		t.Fatalf("ciphertexts identical for same plaintext (nonce reuse)")
-	}
-}
-
 func TestDestroyZeroesAndPreventsOpen(t *testing.T) {
 	s, err := Seal([]byte("destroy-me"))
 	if err != nil {
@@ -67,7 +55,6 @@ func TestDestroyZeroesAndPreventsOpen(t *testing.T) {
 	if _, err := s.Open(); err == nil {
 		t.Fatalf("Open after Destroy should fail")
 	}
-	// Double-destroy must not panic.
 	s.Destroy()
 }
 

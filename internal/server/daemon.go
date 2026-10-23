@@ -32,6 +32,12 @@ func RunDaemon() {
 		}
 	}
 	log.Printf("daemon starting: pid=%d version=%s (%s)", os.Getpid(), version.Version, version.Revision)
+	if err := memprotect.HardenProcess(); err != nil {
+		log.Printf("warning: process memory stays readable for other processes: %v", err)
+	}
+	if err := memprotect.Init(); err != nil {
+		log.Printf("warning: memory protection incomplete: %v", err)
+	}
 	if failures := os.Getenv(utils.StartFailuresEnv); failures != "" {
 		log.Printf("warning: earlier start attempts failed: %s", failures)
 		_ = os.Unsetenv(utils.StartFailuresEnv)

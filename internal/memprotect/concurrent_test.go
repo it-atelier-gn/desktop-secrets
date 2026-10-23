@@ -62,7 +62,7 @@ func TestOpenAfterDestroyReturnsError(t *testing.T) {
 
 func TestNilSealedSafe(t *testing.T) {
 	var s *Sealed
-	s.Destroy() // must not panic
+	s.Destroy()
 	if _, err := s.Open(); err == nil {
 		t.Fatal("Open on nil should error")
 	}

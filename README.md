@@ -433,6 +433,20 @@ To stop the daemon on Linux, run `systemctl --user stop desktop-secrets-daemon` 
 
 If the daemon can only be started inside the caller's lifetime, it stops together with the calling program, and vaults have to be unlocked again on the next call. On Windows, `getsec` prints a warning and `daemon.log` contains a `warning:` line in that case. On Linux this happens when the caller runs inside a systemd unit that is stopped and no systemd user session is reachable, and always inside sandboxes with their own process namespace.
 
+### Protection of cached secrets
+
+Secrets the daemon keeps for the TTL are stored encrypted in its memory. For KeePass this covers the fields the database marks as protected, such as passwords; other fields such as user names and URLs are kept as plain text.
+
+| Platform | Cached secrets | Access by other processes of your user |
+|----------|----------------|----------------------------------------|
+| Windows | Encrypted with a key held by Windows for this one process. A memory dump, for example "Create dump file" in Task Manager, contains no readable secret. | Reading or changing the daemon's memory is refused, so Task Manager and similar tools cannot create a dump of it. Ending the daemon from Task Manager or with `taskkill` works. |
+| Linux | Encrypted with a key that is kept out of swap and core dumps. | Reading the daemon's memory through `/proc/<pid>/mem`, debuggers and core dumps is refused. |
+| macOS | Encrypted with a key that is kept out of swap. | Core dumps are disabled. |
+
+An administrator, root, or a process running with debug privileges can still read the daemon's memory. While a secret is being handed out, its plain value is briefly present in the daemon.
+
+If the daemon cannot apply this protection, `daemon.log` contains a `warning:` line.
+
 ## Default Configuration Locations
 
 - macOS: `~/Library/Application Support/desktop-secrets`
