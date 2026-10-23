@@ -419,11 +419,19 @@ To re-enrol (lost key, new authenticator), delete `webauthn.cred` and restart th
 
 ## Background Daemon
 
-The first `getsec` or `tplenv` call starts a daemon in the background. It keeps unlocked vaults for the configured TTL and keeps running after the terminal that started it is closed. Its log is `daemon.log` in the configuration directory.
+The first `getsec` or `tplenv` call starts a daemon in the background. It keeps unlocked vaults for the configured TTL and keeps running after the terminal, IDE or tool that started it is closed. Its log is `daemon.log` in the configuration directory; at startup it records how the daemon was started and which attempts failed.
 
-On Windows, some terminals, IDEs and agent tools end every process they started when they close. When `getsec` runs inside such a program, the daemon is started through the Windows Task Scheduler so that it outlives the caller. You will find a hidden task named `desktop-secrets daemon <your SID>` in the root folder of the Task Scheduler library; deleting it is safe, it is recreated when needed. A daemon started this way takes its environment from your Windows user profile, and the `DESKTOP_SECRETS_*` variables of the calling shell are passed on to it.
+| Platform | How the daemon is started | Where to find it |
+|----------|---------------------------|------------------|
+| Windows | Directly, or through the Windows Task Scheduler when the calling program does not let its processes outlive it | Hidden task `desktop-secrets daemon <your SID>` in the root folder of the Task Scheduler library |
+| Linux with a systemd user session | As its own systemd user service | `systemctl --user status desktop-secrets-daemon` |
+| Linux without a systemd user session, macOS | In its own session, detached from the terminal | `daemon.log` |
 
-If the daemon can only be started inside the caller's lifetime, `getsec` prints a warning and `daemon.log` contains a `warning:` line. The daemon then stops together with the calling program, and vaults have to be unlocked again on the next call.
+On Windows, a daemon started through the Task Scheduler takes its environment from your Windows user profile, and the `DESKTOP_SECRETS_*` variables of the calling shell are passed on to it. Deleting the task is safe, it is recreated when needed. On Linux, the daemon receives the environment of the shell that started it.
+
+To stop the daemon on Linux, run `systemctl --user stop desktop-secrets-daemon` or choose **Exit** in the tray menu.
+
+If the daemon can only be started inside the caller's lifetime, it stops together with the calling program, and vaults have to be unlocked again on the next call. On Windows, `getsec` prints a warning and `daemon.log` contains a `warning:` line in that case. On Linux this happens when the caller runs inside a systemd unit that is stopped and no systemd user session is reachable, and always inside sandboxes with their own process namespace.
 
 ## Default Configuration Locations
 
