@@ -15,6 +15,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.79.3
 	github.com/danieljoos/wincred v1.2.3
 	github.com/getlantern/systray v1.2.2
+	github.com/go-ole/go-ole v1.3.0
 	github.com/gofrs/flock v0.13.1
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/mitchellh/go-ps v1.0.0
@@ -61,7 +62,6 @@ require (
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276 // indirect
 	github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.2 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
-	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-text/render v0.2.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect

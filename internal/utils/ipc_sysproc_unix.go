@@ -4,10 +4,12 @@ package utils
 
 import "syscall"
 
-type sysProcAttr = syscall.SysProcAttr
-
-func DaemonSysProcAttrs() []*sysProcAttr {
-	return []*sysProcAttr{{Setsid: true}}
+func DaemonLaunchers() []DaemonLauncher {
+	return []DaemonLauncher{
+		{Name: "new session", Start: spawnWith(&syscall.SysProcAttr{Setsid: true})},
+	}
 }
 
 func JobStatus() string { return "" }
+
+func JobKillsOnClose() bool { return false }

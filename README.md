@@ -417,6 +417,14 @@ DesktopSecrets ships in two build variants. They are produced from the same sour
 
 To re-enrol (lost key, new authenticator), delete `webauthn.cred` and restart the daemon.
 
+## Background Daemon
+
+The first `getsec` or `tplenv` call starts a daemon in the background. It keeps unlocked vaults for the configured TTL and keeps running after the terminal that started it is closed. Its log is `daemon.log` in the configuration directory.
+
+On Windows, some terminals, IDEs and agent tools end every process they started when they close. When `getsec` runs inside such a program, the daemon is started through the Windows Task Scheduler so that it outlives the caller. You will find a hidden task named `desktop-secrets daemon <your SID>` in the root folder of the Task Scheduler library; deleting it is safe, it is recreated when needed. A daemon started this way takes its environment from your Windows user profile, and the `DESKTOP_SECRETS_*` variables of the calling shell are passed on to it.
+
+If the daemon can only be started inside the caller's lifetime, `getsec` prints a warning and `daemon.log` contains a `warning:` line. The daemon then stops together with the calling program, and vaults have to be unlocked again on the next call.
+
 ## Default Configuration Locations
 
 - macOS: `~/Library/Application Support/desktop-secrets`

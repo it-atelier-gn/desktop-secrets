@@ -32,8 +32,15 @@ func RunDaemon() {
 		}
 	}
 	log.Printf("daemon starting: pid=%d version=%s (%s)", os.Getpid(), version.Version, version.Revision)
+	if failures := os.Getenv(utils.StartFailuresEnv); failures != "" {
+		log.Printf("warning: earlier start attempts failed: %s", failures)
+		_ = os.Unsetenv(utils.StartFailuresEnv)
+	}
 	if status := utils.JobStatus(); status != "" {
 		log.Print(status)
+	}
+	if utils.JobKillsOnClose() {
+		log.Print("warning: the daemon runs inside a kill-on-close job object; it stops when the process that started it ends, so unlocked vaults are forgotten before their TTL expires")
 	}
 
 	if loaded := winenv.Hydrate(); len(loaded) > 0 {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
-	"syscall"
+	"strings"
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
@@ -25,7 +25,7 @@ func EnsureDaemonRunning(ctx context.Context) (*shm.DaemonState, error) {
 		return nil, err
 	}
 
-	if err := startDaemon(exe, utils.DaemonSysProcAttrs(), startCmd); err != nil {
+	if err := startDaemon(exe, utils.DaemonLaunchers(), os.Stderr); err != nil {
 		return nil, err
 	}
 
@@ -47,18 +47,30 @@ func EnsureDaemonRunning(ctx context.Context) (*shm.DaemonState, error) {
 	return nil, fmt.Errorf("daemon did not become healthy: %v", lastErr)
 }
 
-func startCmd(cmd *exec.Cmd) error { return cmd.Start() }
-
-func startDaemon(exe string, attrs []*syscall.SysProcAttr, start func(*exec.Cmd) error) error {
+func startDaemon(exe string, launchers []utils.DaemonLauncher, warn io.Writer) error {
 	var errs []error
-	for _, attr := range attrs {
-		cmd := exec.Command(exe, "--daemon")
-		cmd.SysProcAttr = attr
-		if err := start(cmd); err != nil {
-			errs = append(errs, err)
+	for _, l := range launchers {
+		var env []string
+		if len(errs) > 0 {
+			env = []string{utils.StartFailuresEnv + "=" + joinErrors(errs)}
+		}
+		if err := l.Start(exe, []string{"--daemon"}, env); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", l.Name, err))
 			continue
+		}
+		if l.Degraded {
+			fmt.Fprintf(warn, "warning: daemon started %s after: %s; it stops when the calling process ends and unlocked vaults are forgotten\n",
+				l.Name, joinErrors(errs))
 		}
 		return nil
 	}
 	return fmt.Errorf("failed to start daemon: %w", errors.Join(errs...))
+}
+
+func joinErrors(errs []error) string {
+	parts := make([]string, len(errs))
+	for i, e := range errs {
+		parts[i] = e.Error()
+	}
+	return strings.Join(parts, "; ")
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/client"
 	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/server"
+	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 )
 
 var initialized bool
@@ -20,6 +21,7 @@ func Init() bool {
 	initialized = true
 	for _, arg := range os.Args[1:] {
 		if arg == "--daemon" {
+			utils.ApplySetenvArgs(os.Args[1:])
 			server.RunDaemon()
 			return true
 		}
