@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	osuser "os/user"
 	"strings"
 	"time"
 
+	"github.com/it-atelier-gn/desktop-secrets/internal/audit"
 	"github.com/it-atelier-gn/desktop-secrets/internal/client"
 	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/server"
@@ -41,6 +43,15 @@ func runSetMachinePolicy(args []string) {
 		fmt.Fprintf(os.Stderr, "cannot write %s: %v\n", policy.Location, err)
 		os.Exit(1)
 	}
+	if err := audit.RegisterEventSource(); err != nil {
+		fmt.Fprintf(os.Stderr, "cannot register event source: %v\n", err)
+	}
+	by := ""
+	if u, err := osuser.Current(); err == nil {
+		by = " by " + u.Username
+	}
+	audit.LogPolicyChange(fmt.Sprintf("Minimum settings in %s changed%s: retrieval_approval=%t min_approval_factor=%q max_unlock_ttl=%d",
+		policy.Location, by, f.RetrievalApproval, f.MinApprovalFactor, f.MaxUnlockTTL))
 }
 
 func ResolveSecret(ref string) (string, error) {

@@ -1,8 +1,3 @@
-// Package audit records every retrieval-approval decision the daemon
-// makes. One JSON Lines record per attempt, appended to a file in the
-// user's settings directory. Used for after-the-fact incident review:
-// "which process got which secret when, and was it via a fresh
-// approval, a cached grant, or an auto-approve on unlock".
 package audit
 
 import (
@@ -16,24 +11,17 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 )
 
-// Decision enumerates the outcomes worth distinguishing in the log.
 type Decision string
 
 const (
-	DecisionAllowed      Decision = "allowed"        // user clicked Allow on the approval dialog
-	DecisionCached       Decision = "cached"         // existing live grant matched, no prompt shown
-	DecisionDenied       Decision = "denied"         // user clicked Deny / closed the approval dialog
-	DecisionForgotten    Decision = "forgotten"      // user clicked Forget on the approval dialog
-	DecisionUnlockFailed Decision = "unlock_failed"  // password / master-password prompt errored out
-	DecisionOSAuthFailed Decision = "os_auth_failed" // user clicked Allow but the OS factor (Hello / etc.) did not verify
+	DecisionAllowed      Decision = "allowed"
+	DecisionCached       Decision = "cached"
+	DecisionDenied       Decision = "denied"
+	DecisionForgotten    Decision = "forgotten"
+	DecisionUnlockFailed Decision = "unlock_failed"
+	DecisionOSAuthFailed Decision = "os_auth_failed"
 )
 
-// Record is one audit-log entry, serialised as a single JSON line.
-//
-// Factor identifies which authentication surface produced the grant
-// (`click`, `os_local`, ...). Set on allowed / auto_approved /
-// cached records so a reviewer can distinguish "user clicked Allow"
-// from "user passed Windows Hello". Empty on denial records.
 type Record struct {
 	Time        time.Time `json:"time"`
 	Decision    Decision  `json:"decision"`
@@ -50,19 +38,11 @@ type Record struct {
 	Error       string    `json:"error,omitempty"`
 }
 
-// Logger appends Records to a JSON Lines file. Safe for concurrent use.
-// A nil *Logger is valid and silently drops events, so callers can
-// avoid sprinkling nil checks at call sites.
 type Logger struct {
 	mu   sync.Mutex
 	path string
 }
 
-// New returns a Logger that appends to filepath.Join(dir, "audit.log").
-// The directory is created if it does not exist. Errors from directory
-// creation are returned; per-write errors are swallowed (the daemon
-// must not fail a secret retrieval because the audit log is unwritable
-// — operators can detect this via the absence of expected records).
 func New(dir string) (*Logger, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -70,9 +50,6 @@ func New(dir string) (*Logger, error) {
 	return &Logger{path: filepath.Join(dir, "audit.log")}, nil
 }
 
-// Log appends rec to the audit log. Best-effort: errors are silently
-// swallowed for the reason described on New. Records lacking a time
-// are stamped with the current time.
 func (l *Logger) Log(rec Record) {
 	if l == nil {
 		return
@@ -84,6 +61,7 @@ func (l *Logger) Log(rec Record) {
 	if err != nil {
 		return
 	}
+	reportEvent(eventFor(rec.Decision), string(line))
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -94,16 +72,10 @@ func (l *Logger) Log(rec Record) {
 	_, _ = fmt.Fprintf(f, "%s\n", line)
 }
 
-// LogDecision is a convenience wrapper that populates the process
-// fields from an InfoFromContext-style clientinfo.Info and writes the
-// record.
 func (l *Logger) LogDecision(info clientinfo.Info, decision Decision, providerKey, providerRef, errMsg string) {
 	l.LogDecisionWithFactor(info, decision, "", providerKey, providerRef, errMsg)
 }
 
-// LogDecisionWithFactor writes a decision and records which
-// authentication factor produced the grant. Use for allowed /
-// auto_approved / cached records; for denials pass factor="".
 func (l *Logger) LogDecisionWithFactor(info clientinfo.Info, decision Decision, factor, providerKey, providerRef, errMsg string) {
 	l.Log(Record{
 		Decision:    decision,
@@ -119,4 +91,34 @@ func (l *Logger) LogDecisionWithFactor(info clientinfo.Info, decision Decision, 
 		ParentName:  info.ParentName,
 		Error:       errMsg,
 	})
+}
+
+type event struct {
+	ID      uint32
+	Warning bool
+}
+
+const EventPolicyChanged uint32 = 300
+
+func eventFor(d Decision) event {
+	switch d {
+	case DecisionAllowed:
+		return event{ID: 100}
+	case DecisionCached:
+		return event{ID: 101}
+	case DecisionDenied:
+		return event{ID: 200, Warning: true}
+	case DecisionForgotten:
+		return event{ID: 201, Warning: true}
+	case DecisionUnlockFailed:
+		return event{ID: 202, Warning: true}
+	case DecisionOSAuthFailed:
+		return event{ID: 203, Warning: true}
+	default:
+		return event{ID: 299, Warning: true}
+	}
+}
+
+func LogPolicyChange(msg string) {
+	reportEvent(event{ID: EventPolicyChanged}, msg)
 }

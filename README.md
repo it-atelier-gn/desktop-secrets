@@ -448,6 +448,22 @@ max_unlock_ttl: 60
 
 The minimum settings take effect when the daemon starts and when they are changed in the settings window.
 
+### Audit log
+
+Every approval decision is written as one JSON line to `audit.log` in the configuration directory. On Windows, the same record also goes to the Windows **Application** event log under the source `desktop-secrets`, where users cannot delete it and event forwarding or a SIEM can collect it. Changes to the minimum settings are recorded there as well.
+
+| Event ID | Level | Meaning |
+|----------|-------|---------|
+| 100 | Information | Retrieval allowed after the approval dialog |
+| 101 | Information | Retrieval allowed by an existing grant |
+| 200 | Warning | Retrieval denied |
+| 201 | Warning | Retrieval denied and the cached secret forgotten |
+| 202 | Warning | Vault unlock failed |
+| 203 | Warning | Windows Hello or security key not confirmed |
+| 300 | Information | Minimum settings changed |
+
+The event source is registered the first time the minimum settings are changed. Before that, Event Viewer shows the events with a note that the description cannot be found; the record itself is still included.
+
 ## Background Daemon
 
 The first `getsec` or `tplenv` call starts a daemon in the background. It keeps unlocked vaults for the configured TTL and keeps running after the terminal, IDE or tool that started it is closed. Its log is `daemon.log` in the configuration directory; at startup it records how the daemon was started and which attempts failed.
