@@ -3,6 +3,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -32,14 +33,57 @@ func TestDaemonLaunchersOrder(t *testing.T) {
 	for i, l := range ls {
 		names[i] = l.Name
 	}
-	want := []string{"breakaway from job", "task scheduler", "detached inside job"}
+	want := []string{"breakaway from job", "task scheduler", "breakaway from inner job", "detached inside job"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("launchers = %v, want %v", names, want)
 	}
 	for i, l := range ls {
-		if l.Degraded != (i == len(ls)-1) {
+		if l.Degraded != (i >= 2) {
 			t.Fatalf("launcher %q degraded=%v", l.Name, l.Degraded)
 		}
+	}
+}
+
+func TestBreakawayRejectsNestedKillOnCloseJob(t *testing.T) {
+	if os.Getenv(jobHelperEnv) != "" {
+		t.Skip("helper process")
+	}
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	runHelper(t, "nested-parent", pidFile)
+	time.Sleep(time.Second)
+	if _, err := os.Stat(pidFile); err == nil {
+		t.Fatal("child ran although it stayed inside the outer kill-on-close job")
+	}
+}
+
+func TestScheduledDaemonSurvivesNestedJob(t *testing.T) {
+	if os.Getenv(jobHelperEnv) != "" {
+		t.Skip("helper process")
+	}
+	if os.Getenv("CI") != "" {
+		t.Skip("task scheduler needs an interactive logon session")
+	}
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	t.Cleanup(func() { _ = deleteScheduledTask(testTaskName) })
+	runHelper(t, "nested-scheduled-parent", pidFile)
+
+	pid, status := waitForChild(t, pidFile)
+	t.Logf("scheduled child: %s", status)
+	if strings.Contains(status, "kill-on-close=true") {
+		t.Fatalf("scheduled child runs in a kill-on-close job: %s", status)
+	}
+	assertSurvives(t, pid)
+}
+
+func TestInnerBreakawayStaysInOuterJob(t *testing.T) {
+	if os.Getenv(jobHelperEnv) != "" {
+		t.Skip("helper process")
+	}
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	runHelper(t, "nested-inner-parent", pidFile)
+	_, status := waitForChild(t, pidFile)
+	if !strings.Contains(status, "kill-on-close=true") {
+		t.Fatalf("child left the outer job: %s", status)
 	}
 }
 
@@ -85,6 +129,12 @@ func TestJobHelper(t *testing.T) {
 		runJobParent(t)
 	case "strict-parent":
 		runStrictJobParent(t)
+	case "nested-parent":
+		runNestedJobParent(t, false)
+	case "nested-scheduled-parent":
+		runNestedJobParent(t, true)
+	case "nested-inner-parent":
+		runNestedInnerParent(t)
 	case "child":
 		data := fmt.Sprintf("%d\n%s", os.Getpid(), JobStatus())
 		if err := os.WriteFile(os.Getenv(jobPidFileEnv), []byte(data), 0o600); err != nil {
@@ -97,8 +147,7 @@ func TestJobHelper(t *testing.T) {
 }
 
 func runJobParent(t *testing.T) {
-	job := enterKillOnCloseJob(t, windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK)
-	defer windows.CloseHandle(job)
+	enterKillOnCloseJob(t, windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK)
 	t.Setenv(jobHelperEnv, "child")
 	if err := DaemonLaunchers()[0].Start(testExe(t), []string{helperRun}, nil); err != nil {
 		t.Fatal(err)
@@ -106,8 +155,7 @@ func runJobParent(t *testing.T) {
 }
 
 func runStrictJobParent(t *testing.T) {
-	job := enterKillOnCloseJob(t, 0)
-	defer windows.CloseHandle(job)
+	enterKillOnCloseJob(t, 0)
 	exe := testExe(t)
 	args := []string{helperRun, "--"}
 	if err := DaemonLaunchers()[0].Start(exe, args, nil); err == nil {
@@ -119,14 +167,50 @@ func runStrictJobParent(t *testing.T) {
 	}
 }
 
+func enterNestedJobs(t *testing.T) {
+	t.Helper()
+	enterKillOnCloseJob(t, 0)
+	enterJob(t, windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK)
+}
+
+func runNestedJobParent(t *testing.T, scheduled bool) {
+	enterNestedJobs(t)
+	exe := testExe(t)
+	args := []string{helperRun, "--"}
+	env := []string{jobHelperEnv + "=child", jobPidFileEnv + "=" + os.Getenv(jobPidFileEnv)}
+	if err := DaemonLaunchers()[0].Start(exe, args, env); !errors.Is(err, errStillInJob) {
+		t.Fatalf("breakaway into the outer job must be rejected, got %v", err)
+	}
+	if !scheduled {
+		return
+	}
+	if err := startScheduledTask(testTaskName, exe, args, env); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runNestedInnerParent(t *testing.T) {
+	enterNestedJobs(t)
+	env := []string{jobHelperEnv + "=child", jobPidFileEnv + "=" + os.Getenv(jobPidFileEnv)}
+	if err := DaemonLaunchers()[2].Start(testExe(t), []string{helperRun}, env); err != nil {
+		t.Fatal(err)
+	}
+	waitForChild(t, os.Getenv(jobPidFileEnv))
+}
+
 func enterKillOnCloseJob(t *testing.T, extra uint32) windows.Handle {
+	t.Helper()
+	return enterJob(t, windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE|extra)
+}
+
+func enterJob(t *testing.T, flags uint32) windows.Handle {
 	t.Helper()
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | extra
+	info.BasicLimitInformation.LimitFlags = flags
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
 		t.Fatal(err)

@@ -59,7 +59,7 @@ func startDaemon(exe string, launchers []utils.DaemonLauncher, warn io.Writer) e
 			continue
 		}
 		if l.Degraded {
-			fmt.Fprintf(warn, "warning: daemon started %s after: %s; it stops when the calling process ends and unlocked vaults are forgotten\n",
+			fmt.Fprintf(warn, "warning: daemon started %s after: %s; it may stop when the calling process ends and unlocked vaults are then forgotten\n",
 				l.Name, joinErrors(errs))
 		}
 		return nil
