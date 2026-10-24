@@ -14,10 +14,12 @@ import (
 	w "github.com/tobischo/gokeepasslib/v3/wrappers"
 )
 
-// writeKDBX builds an in-memory KeePass database and writes it to dir/file.kdbx.
-// Returns the file path, master password, and the entries that were written
-// (path → password) so tests can assert on lookups.
 func writeKDBX(t *testing.T, dir string) (path, master string, want map[string]string) {
+	t.Helper()
+	return writeKDBXWithSecret(t, dir, "prod-secret-1")
+}
+
+func writeKDBXWithSecret(t *testing.T, dir, prodSecret string) (path, master string, want map[string]string) {
 	t.Helper()
 	master = "supersecret-master"
 
@@ -35,7 +37,7 @@ func writeKDBX(t *testing.T, dir string) (path, master string, want map[string]s
 	e1.Values = []gokeepasslib.ValueData{
 		mkPlain("Title", "Prod"),
 		mkPlain("UserName", "alice"),
-		mkProtected("Password", "prod-secret-1"),
+		mkProtected("Password", prodSecret),
 	}
 	root.Entries = append(root.Entries, e1)
 
@@ -70,7 +72,7 @@ func writeKDBX(t *testing.T, dir string) (path, master string, want map[string]s
 	}
 
 	want = map[string]string{
-		"AWS/Prod":    "prod-secret-1",
+		"AWS/Prod":    prodSecret,
 		"AWS/Sub/Dev": "dev-secret-2",
 	}
 	return path, master, want
@@ -169,7 +171,6 @@ func TestVaultDestroyWipesSealedEntries(t *testing.T) {
 	if vlt.entries != nil {
 		t.Error("entries not nil after destroy")
 	}
-	// Double destroy must not panic.
 	vlt.destroy()
 }
 
@@ -253,4 +254,43 @@ func TestEvictAllDestroysVaults(t *testing.T) {
 		t.Error("evicted vault not destroyed")
 	}
 	m.EvictAll()
+}
+
+func TestSameFileNameInDifferentDirectories(t *testing.T) {
+	pathA, master, _ := writeKDBXWithSecret(t, t.TempDir(), "secret-a")
+	pathB, _, _ := writeKDBXWithSecret(t, t.TempDir(), "secret-b")
+	if filepath.Base(pathA) != filepath.Base(pathB) {
+		t.Fatalf("test needs equal file names, got %q and %q", pathA, pathB)
+	}
+	m := newManagerForTest(t)
+
+	for _, tc := range []struct{ path, want string }{{pathA, "secret-a"}, {pathB, "secret-b"}, {pathA, "secret-a"}} {
+		got, err := m.ResolvePassword(context.Background(), tc.path, "/AWS/Prod", master, time.Hour, nil)
+		if err != nil {
+			t.Fatalf("ResolvePassword(%q): %v", tc.path, err)
+		}
+		if got != tc.want {
+			t.Errorf("ResolvePassword(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+	if got := len(m.CachedVaults()); got != 2 {
+		t.Errorf("cached vaults = %d, want 2", got)
+	}
+}
+
+func TestVaultKey(t *testing.T) {
+	abs, err := filepath.Abs("db.kdbx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{
+		"&work":   "work",
+		"db.kdbx": abs,
+		abs:       abs,
+	}
+	for in, want := range cases {
+		if got := VaultKey(in); got != want {
+			t.Errorf("VaultKey(%q) = %q, want %q", in, got, want)
+		}
+	}
 }

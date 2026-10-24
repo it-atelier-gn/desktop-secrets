@@ -145,6 +145,7 @@ func NewAppState() *AppState {
 	a.USER.SetUnlockTTL(&a.UnlockTTL)
 	a.KP.SetUnlockTTL(&a.UnlockTTL)
 
+	prompt.MaxUnlockTTLProvider = func() int { return a.Floor().MaxUnlockTTL }
 	prompt.ApprovalGrantProvider = func() int { return viper.GetInt("approval_grant_minutes") }
 	prompt.ApprovalGrantPersister = func(m int) {
 		if viper.GetInt("approval_grant_minutes") == m {
@@ -178,5 +179,18 @@ func (a *AppState) ApplySettings() {
 	}
 	floor := a.Floor()
 	a.RetrievalApproval.Store(floor.EffectiveApproval(viper.GetBool("retrieval_approval")))
-	a.UnlockTTL.Store(time.Duration(floor.EffectiveTTL(viper.GetInt("ttl"))) * time.Minute)
+	a.setTTL(time.Duration(floor.EffectiveTTL(viper.GetInt("ttl"))) * time.Minute)
+}
+
+type ttlSetter interface {
+	SetTTL(time.Duration)
+}
+
+func (a *AppState) setTTL(ttl time.Duration) {
+	a.UnlockTTL.Store(ttl)
+	for _, r := range []any{a.AWS, a.AZKV, a.GCPSM, a.VAULT, a.ONEPASSWORD} {
+		if s, ok := r.(ttlSetter); ok {
+			s.SetTTL(ttl)
+		}
+	}
 }

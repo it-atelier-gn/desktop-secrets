@@ -118,11 +118,6 @@ func (m *KPManager) SetUnlockTTL(unlockTTL *utils.AtomicDuration) {
 	m.unlockTTL = unlockTTL
 }
 
-// IsVaultUnlocked reports whether a non-expired unlocked-vault cache
-// entry exists for key. The resolver gate uses this to predict whether
-// the next ResolvePassword call will trigger a master-password dialog
-// — if it would, the separate retrieval-approval prompt is skipped and
-// a successful unlock implicitly approves access.
 func (m *KPManager) IsVaultUnlocked(key string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -130,10 +125,6 @@ func (m *KPManager) IsVaultUnlocked(key string) bool {
 	return ok && v.entries != nil && time.Now().Before(v.expires)
 }
 
-// EvictVault drops the cached unlocked vault by its short key (alias
-// or filepath.Base of the vault path). The vault must be re-unlocked
-// on the next access. Used when the user picks Forget on the
-// approval dialog.
 func (m *KPManager) EvictVault(key string) {
 	m.mu.Lock()
 	v, ok := m.vaults[key]
@@ -347,6 +338,16 @@ func (m *KPManager) SetKeyfiles(list []KeyfileInfo) error {
 	return m.SaveKeyfiles()
 }
 
+func VaultKey(vault string) string {
+	if alias, ok := strings.CutPrefix(vault, "&"); ok {
+		return alias
+	}
+	if abs, err := filepath.Abs(vault); err == nil {
+		return abs
+	}
+	return vault
+}
+
 func (m *KPManager) ResolvePassword(ctx context.Context, vault, entry string, master string, ttl time.Duration, resolve func(line string) (string, error)) (string, error) {
 	var alias, dbPath string
 
@@ -369,10 +370,7 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, entry string, ma
 			}
 		}
 	} else {
-		// Direct paths are NOT env-expanded: that would leak the daemon's
-		// env back to the client via the error path. Use aliases for $VAR.
 		dbPath = vault
-		alias = filepath.Base(dbPath)
 	}
 
 	abs, err := filepath.Abs(dbPath)
@@ -380,8 +378,7 @@ func (m *KPManager) ResolvePassword(ctx context.Context, vault, entry string, ma
 		return "", fmt.Errorf("failed to resolve path: %w", err)
 	}
 
-	// Get (or open) the unlocked vault. Prefer non-interactive unlock using nestedToken
-	vlt, err := m.getOrOpenVault(ctx, alias, abs, master, ttl)
+	vlt, err := m.getOrOpenVault(ctx, VaultKey(vault), abs, master, ttl)
 	if err != nil {
 		return "", err
 	}
@@ -410,7 +407,6 @@ func (m *KPManager) getOrOpenVault(ctx context.Context, key, path, master string
 	}
 	m.mu.Unlock()
 
-	// Try stored keyfile first
 	m.mu.RLock()
 	lastKeyfile := ""
 	if m.keyfiles != nil {
@@ -427,7 +423,6 @@ func (m *KPManager) getOrOpenVault(ctx context.Context, key, path, master string
 		}
 	}
 
-	// Try non-interactive master password
 	if master != "" {
 		if u, err := m.openVaultWithMaster(key, path, master, ttl); err == nil {
 			m.mu.Lock()
@@ -437,7 +432,6 @@ func (m *KPManager) getOrOpenVault(ctx context.Context, key, path, master string
 		}
 	}
 
-	// Fall back to interactive prompt
 	var err error
 	var u *unlockedVault
 
@@ -561,8 +555,6 @@ func (m *KPManager) openVault(key, path string, ttl time.Duration, creds *gokeep
 	go func(key string, u *unlockedVault, ttl time.Duration) {
 		<-time.After(ttl)
 		m.mu.Lock()
-		// Only delete if the cache still points at *this* vault — a
-		// concurrent re-unlock would otherwise be evicted by us.
 		if cur, ok := m.vaults[key]; ok && cur == u {
 			delete(m.vaults, key)
 		}
@@ -686,15 +678,10 @@ func findAttribute(entries []*sealedEntry, entry string, attributeName string) (
 	return "", fmt.Errorf("entry %q not found", entry)
 }
 
-// matchSeg is exponential in the number of "**" wildcards, and the pattern
-// is client-controlled. Cap both to keep worst-case bounded.
 const (
 	maxPatternSegments = 64
 	maxDoubleStars     = 4
 )
-
-// splitPattern splits a pattern like "/AWS/*/Prod/api-key" into segments,
-// handling ** and escaped slashes (\/).
 
 func splitPattern(p string) ([]string, error) {
 	p = strings.TrimPrefix(p, "/")
@@ -706,7 +693,6 @@ func splitPattern(p string) ([]string, error) {
 	for _, r := range p {
 		switch {
 		case escaped:
-			// take character literally
 			buf.WriteRune(r)
 			escaped = false
 		case r == '\\':
@@ -741,20 +727,16 @@ func splitPattern(p string) ([]string, error) {
 	return segs, nil
 }
 
-// matchSegments matches pattern segments (with * and **) against a concrete path.
 func matchSegments(pattern, path []string) bool {
 	return matchSeg(pattern, path, 0, 0)
 }
 
 func matchSeg(pat, path []string, i, j int) bool {
-	// If we've consumed the whole pattern, path must also be fully consumed.
 	if i == len(pat) {
 		return j == len(path)
 	}
 
-	// If this is a **, it can match zero or more segments.
 	if pat[i] == "**" {
-		// Try all possible consumptions of path[j:].
 		for k := j; k <= len(path); k++ {
 			if matchSeg(pat, path, i+1, k) {
 				return true
@@ -763,17 +745,14 @@ func matchSeg(pat, path []string, i, j int) bool {
 		return false
 	}
 
-	// For anything else, we need at least one path segment left.
 	if j == len(path) {
 		return false
 	}
 
 	if pat[i] == "*" {
-		// * matches exactly one segment
 		return matchSeg(pat, path, i+1, j+1)
 	}
 
-	// Literal segment
 	if pat[i] != path[j] {
 		return false
 	}

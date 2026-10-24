@@ -70,7 +70,7 @@ func main() {
 		log.Fatalf("cannot read files: %v", err)
 	}
 
-	out, warnings, err := client.RenderViaDaemon(cliCtx, st, []byte(b))
+	out, warnings, err := client.RenderViaDaemon(cliCtx, st, env.ExpandClientEnvBytes([]byte(b)))
 	if err != nil {
 		log.Fatalf("render failed: %v", err)
 	}
@@ -78,7 +78,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "tplenv: %d secret(s) failed to resolve (see # <unresolved: ...> comments in output)\n", warnings)
 	}
 
-	parsed := env.ExpandClientEnv(env.ParseEnvBytes(out))
+	parsed := env.ParseEnvBytes(out)
 
 	var onlyList, excludeList []string
 	if strings.TrimSpace(onlyFlag) != "" {

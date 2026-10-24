@@ -275,29 +275,51 @@ func buildKeePassUI(a fyne.App, w fyne.Window, opts *KeepassOptions, resultCh ch
 	}
 }
 
-func buildTTLSelect(current int) (*widget.Select, map[string]int) {
-	ttlMap := make(map[string]int)
-	labels := make([]string, 0, len(static.TTLOptions))
+var MaxUnlockTTLProvider = func() int { return 0 }
+
+func ttlOptions(max int) []static.TTLOption {
+	if max <= 0 {
+		return static.TTLOptions
+	}
+	var out []static.TTLOption
 	for _, opt := range static.TTLOptions {
+		if opt.Minutes <= max {
+			out = append(out, opt)
+		}
+	}
+	if len(out) == 0 || out[len(out)-1].Minutes < max {
+		out = append(out, static.TTLOption{Label: fmt.Sprintf("%d minutes", max), Minutes: max})
+	}
+	return out
+}
+
+func buildTTLSelect(current int) (*widget.Select, map[string]int) {
+	opts := ttlOptions(MaxUnlockTTLProvider())
+	ttlMap := make(map[string]int)
+	labels := make([]string, 0, len(opts))
+	for _, opt := range opts {
 		labels = append(labels, opt.Label)
 		ttlMap[opt.Label] = opt.Minutes
 	}
 
 	ttlSelect := widget.NewSelect(labels, nil)
-	ttlSelect.SetSelected(ttlLabelFor(current))
+	ttlSelect.SetSelected(ttlLabelFor(opts, current))
 
 	return ttlSelect, ttlMap
 }
 
-func ttlLabelFor(current int) string {
+func ttlLabelFor(opts []static.TTLOption, current int) string {
 	def := ""
-	for _, opt := range static.TTLOptions {
+	for _, opt := range opts {
 		if opt.Minutes == current {
 			return opt.Label
 		}
 		if opt.IsDefault {
 			def = opt.Label
 		}
+	}
+	if def == "" && len(opts) > 0 {
+		def = opts[len(opts)-1].Label
 	}
 	return def
 }

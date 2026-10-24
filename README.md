@@ -48,6 +48,10 @@ LOG_LEVEL=debug
 `tplenv` prints the fully resolved environment.  
 Use `tplenv run` to execute a command with resolved variables injected.
 
+`$VAR` and `${VAR}` in a template are replaced with variables from the environment `tplenv` or `getsec` runs in, before secrets are resolved. Resolved secret values are passed on unchanged, even when they contain `$`.
+
+Values are quoted for the selected shell, so the output can be passed to `eval` or `Invoke-Expression` whatever characters a secret contains. `cmd.exe` cannot set a value that spans several lines; such a variable is left out of the `cmd` output with a message on stderr. Use `tplenv run` for these values.
+
 | Flag | Description |
 |------|-------------|
 | `--shell` | Shell syntax for the output: `auto`, `sh`, `pwsh` or `cmd` |
@@ -66,7 +70,7 @@ Resolves a single secret reference passed directly as an argument.
 Example:
 
 ```sh
-getsec "API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)"
+getsec 'API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)'
 ```
 
 ---
@@ -419,7 +423,7 @@ An administrator can set minimum settings that apply to every user of the comput
 |---------|--------|
 | Approval required | Every retrieval needs at least the Standard dialog. |
 | Windows Hello or security key required *(Windows only)* | Every retrieval needs the Advanced mode. On other platforms this setting is ignored and noted in `daemon.log`. |
-| Maximum unlock TTL | Vaults stay unlocked for at most this many minutes. |
+| Maximum unlock TTL | Vaults and cached secrets stay unlocked for at most this many minutes. Unlock dialogs offer only durations up to this limit. |
 
 To change them, open **Settings** and choose **Change minimum settings…**. Windows asks for administrator rights through UAC, Linux through `pkexec`.
 

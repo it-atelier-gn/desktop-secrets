@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,11 +13,15 @@ import (
 
 func safeKey(k string) bool { return env.IsValidKey(k) }
 
+func shSafe(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_-./:@%+=,", r)
+}
+
 func quoteForSh(v string) string {
 	if v == "" {
 		return "''"
 	}
-	if !strings.ContainsAny(v, " \t'\"\\$`") {
+	if strings.IndexFunc(v, func(r rune) bool { return !shSafe(r) }) < 0 {
 		return v
 	}
 	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
@@ -26,17 +31,26 @@ func quoteForPowerShell(v string) string {
 	if v == "" {
 		return "''"
 	}
+	if strings.ContainsAny(v, "\r\n") {
+		return "([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + base64.StdEncoding.EncodeToString([]byte(v)) + "')))"
+	}
 	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }
 
-func quoteForCmd(v string) string {
-	if v == "" {
-		return `""`
+func cmdSetLine(k, v string) (string, bool) {
+	if strings.ContainsAny(v, "\r\n") {
+		return "", false
 	}
-	if !strings.ContainsAny(v, " \t\"") {
-		return v
+	return `set "` + k + "=" + v + `"`, true
+}
+
+func printCmdSet(k, v string) {
+	line, ok := cmdSetLine(k, v)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "tplenv: %s skipped for cmd.exe because its value spans several lines\n", k)
+		return
 	}
-	return `"` + strings.ReplaceAll(v, `"`, `""`) + `"`
+	fmt.Println(line)
 }
 
 func printEnvCommandsAll(envMap map[string]string) {
@@ -61,7 +75,7 @@ func printEnvCommandsAll(envMap map[string]string) {
 		if !safeKey(k) {
 			continue
 		}
-		fmt.Printf("set %s=%s\n", k, quoteForCmd(v))
+		printCmdSet(k, v)
 	}
 }
 
@@ -80,7 +94,7 @@ func printEnvForShell(envMap map[string]string, shell string) {
 	case "cmd":
 		fmt.Println("# Windows cmd.exe:")
 		for k, v := range envMap {
-			fmt.Printf("set %s=%s\n", k, quoteForCmd(v))
+			printCmdSet(k, v)
 		}
 	default:
 		printEnvCommandsAll(envMap)
