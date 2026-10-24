@@ -3,7 +3,6 @@ package env
 import (
 	"bufio"
 	"os"
-	"regexp"
 	"strings"
 )
 
@@ -29,12 +28,6 @@ func IsValidKey(s string) bool {
 	return true
 }
 
-var bracedVar = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
-func expandBraced(s string) string {
-	return bracedVar.ReplaceAllStringFunc(s, func(m string) string { return os.Getenv(m[2 : len(m)-1]) })
-}
-
 func ExpandClientEnvBytes(b []byte) []byte {
 	scanner := bufio.NewScanner(strings.NewReader(string(b)))
 	var out strings.Builder
@@ -57,7 +50,7 @@ func ExpandClientEnvBytes(b []byte) []byte {
 		}
 		out.WriteString(key)
 		out.WriteByte('=')
-		out.WriteString(expandBraced(val))
+		out.WriteString(os.ExpandEnv(val))
 	}
 	return []byte(out.String())
 }

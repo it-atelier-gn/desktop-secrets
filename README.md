@@ -19,10 +19,10 @@ Download `getsec` and `tplenv` for Windows or Linux from the [releases page](htt
 ```properties
 # .env.tpl
 DATABASE_URL=postgresql://localhost:5432/mydb
-API_SECRET=keepass(${USERPROFILE}\Credentials.kdbx|api-key)
+API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)
 ```
 
-`${VAR}` is replaced with the variable from your environment before secrets are resolved. A bare `$` stays as written, both in references and in secret values.
+`$VAR` and `${VAR}` are replaced with variables from your environment before secrets are resolved. Resolved secret values are passed on unchanged, even when they contain `$`.
 
 | `tplenv` flag | Description |
 |---------------|-------------|
