@@ -41,14 +41,14 @@ Example:
 
 ```properties
 DATABASE_URL=postgresql://localhost:5432/mydb
-API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)
+API_SECRET=keepass(${USERPROFILE}\Credentials.kdbx|api-key)
 LOG_LEVEL=debug
 ```
 
 `tplenv` prints the fully resolved environment.  
 Use `tplenv run` to execute a command with resolved variables injected.
 
-`$VAR` and `${VAR}` in a template are replaced with variables from the environment `tplenv` or `getsec` runs in, before secrets are resolved. Resolved secret values are passed on unchanged, even when they contain `$`.
+`${VAR}` in a template is replaced with variables from the environment `tplenv` or `getsec` runs in, before secrets are resolved. A bare `$` stays as written, both in references and in resolved secret values.
 
 Values are quoted for the selected shell, so the output can be passed to `eval` or `Invoke-Expression` whatever characters a secret contains. `cmd.exe` cannot set a value that spans several lines; such a variable is left out of the `cmd` output with a message on stderr. Use `tplenv run` for these values.
 
@@ -70,7 +70,7 @@ Resolves a single secret reference passed directly as an argument.
 Example:
 
 ```sh
-getsec 'API_SECRET=keepass($USERPROFILE\Credentials.kdbx|api-key)'
+getsec 'API_SECRET=keepass(${USERPROFILE}\Credentials.kdbx|api-key)'
 ```
 
 ---

@@ -115,9 +115,27 @@ func TestParseEnvBytes(t *testing.T) {
 
 func TestExpandClientEnvBytesExpandsValuesOnly(t *testing.T) {
 	t.Setenv("DS_TEST_DIR", `C:\Vaults`)
-	in := "A=keepass($DS_TEST_DIR\\db.kdbx|entry)\n# $DS_TEST_DIR\nNOEQUALS $DS_TEST_DIR\nB=plain"
-	want := "A=keepass(C:\\Vaults\\db.kdbx|entry)\n# $DS_TEST_DIR\nNOEQUALS $DS_TEST_DIR\nB=plain"
+	in := "A=keepass(${DS_TEST_DIR}\\db.kdbx|entry)\n# ${DS_TEST_DIR}\nNOEQUALS ${DS_TEST_DIR}\nB=plain"
+	want := "A=keepass(C:\\Vaults\\db.kdbx|entry)\n# ${DS_TEST_DIR}\nNOEQUALS ${DS_TEST_DIR}\nB=plain"
 	if got := string(ExpandClientEnvBytes([]byte(in))); got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestExpandClientEnvBytesKeepsBareDollar(t *testing.T) {
+	t.Setenv("DS_TEST_DIR", `C:\Vaults`)
+	cases := map[string]string{
+		"A=keepass(db.kdbx|Price$1)":     "A=keepass(db.kdbx|Price$1)",
+		"A=wincred($DS_TEST_DIR)":        "A=wincred($DS_TEST_DIR)",
+		"A=a$$b":                         "A=a$$b",
+		"A=x$":                           "A=x$",
+		"A=${DS_UNSET_VAR_XYZ}/f":        "A=/f",
+		"A=${DS_TEST_DIR}${DS_TEST_DIR}": `A=C:\VaultsC:\Vaults`,
+		"A=${not valid}":                 "A=${not valid}",
+	}
+	for in, want := range cases {
+		if got := string(ExpandClientEnvBytes([]byte(in))); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
 	}
 }
