@@ -401,21 +401,52 @@ Chaining works with all lookup modes, including wildcards and aliases.
 
 ## Retrieval Approvals
 
-DesktopSecrets ships in two build variants. They are produced from the same source via a Go build tag; pick the one that matches your threat model.
+Choose in the tray menu under **Settings** how the daemon decides whether to hand out a secret:
 
-### Normal (default download)
+| Mode | What happens on a retrieval |
+|------|-----------------------------|
+| Off (default) | No prompt. Any program running as you that can reach the daemon receives secrets once the vault is unlocked. |
+| Standard | An Allow / Deny dialog for every retrieval that is not covered by a live grant. |
+| Advanced *(Windows only)* | After Allow, Windows Hello or a hardware security key confirms the retrieval. |
 
-- Default approval mode is **Off** — no prompt, the daemon hands out secrets to any local process that can reach it once the source vault is unlocked.
-- Settings UI exposes two modes: **Off** and **Standard** (an Allow/Deny dialog per retrieval).
+When you pick **Advanced**, Windows Hello is checked once. If Windows Hello is not set up, you are asked to register a security key instead. To register a different key, delete `webauthn.cred` in the configuration directory; you are asked for a new one on the next retrieval.
 
-### Hardened (`-tags hardened`)
+### Minimum settings for all users
 
-- Only mode available: every retrieval requires an OS-rendered authentication gesture (Windows Hello PIN/fingerprint/face or a hardware security key).
-- The approval mode cannot be lowered from the UI.
-- Build: 
-  - `go build -tags hardened -o ...`
+An administrator can set minimum settings that apply to every user of the computer. Users can choose stricter settings but not weaker ones; options below the minimum are shown as managed by your organization.
 
-To re-enrol (lost key, new authenticator), delete `webauthn.cred` and restart the daemon.
+| Setting | Effect |
+|---------|--------|
+| Approval required | Every retrieval needs at least the Standard dialog. |
+| Windows Hello or security key required *(Windows only)* | Every retrieval needs the Advanced mode. On other platforms this setting is ignored and noted in `daemon.log`. |
+| Maximum unlock TTL | Vaults stay unlocked for at most this many minutes. |
+
+To change them, open **Settings** and choose **Change minimum settings…**. Windows asks for administrator rights through UAC, Linux through `pkexec`.
+
+The settings are stored where only administrators can write:
+
+| Platform | Location |
+|----------|----------|
+| Windows | Registry key `HKLM\SOFTWARE\Policies\desktop-secrets`, can be distributed through group policy |
+| Linux, macOS | `/etc/desktop-secrets/policy.yaml`, owned by root |
+
+Registry values:
+
+| Value | Type | Content |
+|-------|------|---------|
+| `RetrievalApproval` | DWORD | `1` to require approval |
+| `MinApprovalFactor` | String | `os_local` to require Windows Hello or a security key, empty otherwise |
+| `MaxUnlockTTL` | DWORD | Minutes, `0` for no limit |
+
+`policy.yaml`:
+
+```yaml
+retrieval_approval: true
+min_approval_factor: os_local
+max_unlock_ttl: 60
+```
+
+The minimum settings take effect when the daemon starts and when they are changed in the settings window.
 
 ## Background Daemon
 
@@ -472,12 +503,8 @@ If the daemon cannot apply this protection, `daemon.log` contains a `warning:` l
 Windows:
 
 ```pwsh
-# Normal build (default — Off / Standard modes, weaker)
 go build -o tplenv.exe ./cmd/tplenv
 go build -o getsec.exe ./cmd/getsec
-
-# Hardened build (Windows Hello / hardware key required for every retrieval)
-go build -tags hardened -o getsec.exe ./cmd/getsec
 ```
 
 Linux:
@@ -487,29 +514,13 @@ go build -o tplenv ./cmd/tplenv
 go build -o getsec ./cmd/getsec
 ```
 
-> The hardened build is currently Windows-only — on other platforms it
-> compiles but the OS-factor check at startup will refuse to run.
-
 ### Tests
 
-Three test scopes can be combined via build tags:
-
-```pwsh
-# Default — fast unit tests, lite build
+```sh
 go test ./...
-
-# Hardened-build unit tests (gate routes to WebAuthn, marker write contract)
-go test -tags hardened ./...
-
-# Integration tests — build the lite binary into a tempdir, then exercise
-# `--allow-downgrade` and the marker-refusal startup path. Slower (~20s).
-go test -tags integration ./...
-
-# Everything in one run
-go test -tags "hardened integration" ./...
 ```
 
-The hardened end-to-end path (WebAuthn enrollment + per-retrieval gesture) is **not** covered by automation because no headless way to satisfy a real authenticator exists. Smoke-test that manually after any change to the WebAuthn or enrollment code.
+Windows Hello and security-key approvals need a real authenticator and are not covered by the tests. Check them by hand after changes to that code.
 
 ### Usage as library
 ```

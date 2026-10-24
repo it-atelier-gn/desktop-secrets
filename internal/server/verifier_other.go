@@ -1,4 +1,4 @@
-//go:build !hardened
+//go:build !windows
 
 package server
 
@@ -12,3 +12,7 @@ func buildVerifier() approval.VerifierFunc {
 		return osauth.Verify(reason)
 	}
 }
+
+func securityKeyAvailable() bool { return false }
+
+func ensureSecurityKey() error { return osauth.ErrUnsupported }

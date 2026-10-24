@@ -5,7 +5,6 @@ import (
 	"os"
 	"path"
 
-	"github.com/it-atelier-gn/desktop-secrets/internal/buildmode"
 	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 
@@ -40,13 +39,8 @@ func InitConfig() error {
 		}
 	}
 
-	if buildmode.Hardened {
-		viper.Set("retrieval_approval", true)
-		viper.Set("approval_factor_required", static.ApprovalFactorOSLocal)
-	} else {
-		if factor := viper.GetString("approval_factor_required"); factor != static.ApprovalFactorClick && factor != static.ApprovalFactorOSLocal {
-			viper.Set("approval_factor_required", static.ApprovalFactorClick)
-		}
+	if factor := viper.GetString("approval_factor_required"); factor != static.ApprovalFactorClick && factor != static.ApprovalFactorOSLocal {
+		viper.Set("approval_factor_required", static.ApprovalFactorClick)
 	}
 
 	return nil

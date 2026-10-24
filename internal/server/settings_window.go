@@ -1,20 +1,25 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"log"
-	"time"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
 
 	"github.com/it-atelier-gn/desktop-secrets/assets"
-	"github.com/it-atelier-gn/desktop-secrets/internal/buildmode"
 	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
+	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 )
+
+const managedText = "This setting is managed by your organization."
 
 func showSettingsWindow(app *AppState) {
 	fyne.Do(func() {
@@ -22,38 +27,35 @@ func showSettingsWindow(app *AppState) {
 		w.SetIcon(fyne.NewStaticResource("icon.ico", assetsIconBytes()))
 		w.Resize(fyne.NewSize(640, 480))
 
+		floor := app.Floor()
+
 		header := widget.NewLabelWithStyle(
 			"Retrieval approval",
 			fyne.TextAlignLeading,
 			fyne.TextStyle{Bold: true},
 		)
 
-		var intro *widget.Label
-		if buildmode.Hardened {
-			intro = widget.NewLabel(
-				"This is the hardened build. Every retrieval requires Windows Hello " +
-					"or a hardware security key. The approval mode cannot be lowered " +
-					"from the UI — install the lite build if you want the weaker modes.",
-			)
-		} else {
-			intro = widget.NewLabel(
-				"Choose how the daemon decides whether to release a secret to a " +
-					"requesting process. Stronger options ask for more proof; weaker " +
-					"options are more convenient but trust every process that runs as " +
-					"you. For agent-safe handling, install the hardened build.",
-			)
-		}
+		intro := widget.NewLabel(
+			"Choose how the daemon decides whether to release a secret to a " +
+				"requesting process. Stronger options ask for more proof; weaker " +
+				"options are more convenient but trust every process that runs as " +
+				"you.",
+		)
 		intro.Wrapping = fyne.TextWrapWord
 
 		helloAvail := osauth.CheckAvailability()
 		helloOK := helloAvail == osauth.AvailabilityAvailable
+		advancedOK := helloOK || securityKeyAvailable()
 
 		labels := make([]string, 0, len(static.ApprovalModeOptions))
 		labelByMode := map[static.ApprovalMode]string{}
 		modeByLabel := map[string]static.ApprovalMode{}
 		for _, opt := range static.ApprovalModeOptions {
 			label := opt.Label
-			if opt.Mode == static.ApprovalModeAdvanced && !helloOK {
+			switch {
+			case !floor.AllowsMode(opt.Mode):
+				label = opt.Label + " — managed by your organization"
+			case opt.Mode == static.ApprovalModeAdvanced && !advancedOK:
 				label = opt.Label + " — unavailable"
 			}
 			labels = append(labels, label)
@@ -65,16 +67,8 @@ func showSettingsWindow(app *AppState) {
 			viper.GetBool("retrieval_approval"),
 			viper.GetString("approval_factor_required"),
 		)
-		if _, ok := labelByMode[current]; !ok {
-			current = static.ApprovalModeOff
-			approval, factor := static.ApplyApprovalMode(current)
-			viper.Set("retrieval_approval", approval)
-			viper.Set("approval_factor_required", factor)
-			if err := viper.WriteConfig(); err != nil {
-				log.Printf("Failed to normalize approval mode to Off: %v", err)
-			}
-			app.RetrievalApproval.Store(approval)
-			prompt.AutoAllowPending()
+		if !floor.AllowsMode(current) {
+			current = floor.MinMode()
 		}
 
 		explain := widget.NewLabel("")
@@ -83,7 +77,7 @@ func showSettingsWindow(app *AppState) {
 			for _, opt := range static.ApprovalModeOptions {
 				if opt.Mode == m {
 					text := opt.Description
-					if m == static.ApprovalModeAdvanced && !helloOK {
+					if m == static.ApprovalModeAdvanced && !advancedOK {
 						text += "\n\nNot available right now: " + helloAvail.Reason() +
 							". Configure a Windows Hello method (PIN, fingerprint or " +
 							"face) under Settings → Accounts → Sign-in options and " +
@@ -96,22 +90,28 @@ func showSettingsWindow(app *AppState) {
 			explain.SetText("")
 		}
 
-		var radio *widget.RadioGroup
-		if !buildmode.Hardened {
-			radio = widget.NewRadioGroup(labels, nil)
-			radio.Required = true
-			radio.SetSelected(labelByMode[current])
-		}
+		radio := widget.NewRadioGroup(labels, nil)
+		radio.Required = true
+		radio.SetSelected(labelByMode[current])
 		setExplain(current)
 
-		onChanged := func(sel string) {
+		revert := func() {
+			radio.SetSelected(labelByMode[current])
+			setExplain(current)
+		}
+
+		radio.OnChanged = func(sel string) {
 			picked, ok := modeByLabel[sel]
 			if !ok {
 				return
 			}
-			if picked == static.ApprovalModeAdvanced && !helloOK {
-				radio.SetSelected(labelByMode[current])
-				setExplain(current)
+			if !floor.AllowsMode(picked) {
+				revert()
+				dialog.ShowInformation("Managed setting", managedText, w)
+				return
+			}
+			if picked == static.ApprovalModeAdvanced && !advancedOK {
+				revert()
 				showHelloUnavailableDialog(helloAvail)
 				return
 			}
@@ -120,12 +120,15 @@ func showSettingsWindow(app *AppState) {
 				return
 			}
 			if picked == static.ApprovalModeAdvanced {
-				if _, err := osauth.Verify(
-					"Confirm Advanced retrieval approval (Windows Hello)",
-				); err != nil {
+				var err error
+				if helloOK {
+					_, err = osauth.Verify("Confirm Advanced retrieval approval (Windows Hello)")
+				} else {
+					err = ensureSecurityKey()
+				}
+				if err != nil {
 					log.Printf("advanced approval not activated: %v", err)
-					radio.SetSelected(labelByMode[current])
-					setExplain(current)
+					revert()
 					return
 				}
 			}
@@ -134,34 +137,18 @@ func showSettingsWindow(app *AppState) {
 			newApproval, newFactor := static.ApplyApprovalMode(picked)
 			viper.Set("retrieval_approval", newApproval)
 			viper.Set("approval_factor_required", newFactor)
-			verifier := func() bool { return true }
-			if helloOK {
-				verifier = verifyWithHello("Confirm retrieval-approval change")
-			}
-			if !commitPolicyChange(verifier) {
-				viper.Set("retrieval_approval", prevApproval)
-				viper.Set("approval_factor_required", prevFactor)
-				log.Printf("retrieval-approval mode change rejected by policy keystore")
-				radio.SetSelected(labelByMode[current])
-				setExplain(current)
-				return
-			}
 			if err := viper.WriteConfig(); err != nil {
 				viper.Set("retrieval_approval", prevApproval)
 				viper.Set("approval_factor_required", prevFactor)
 				log.Printf("Failed to save retrieval-approval mode: %v", err)
-				radio.SetSelected(labelByMode[current])
-				setExplain(current)
+				revert()
 				return
 			}
-			app.RetrievalApproval.Store(newApproval)
-			if !newApproval {
+			app.ApplySettings()
+			if !app.RetrievalApproval.Load() {
 				prompt.AutoAllowPending()
 			}
 			current = picked
-		}
-		if radio != nil {
-			radio.OnChanged = onChanged
 		}
 
 		ttlHeader := widget.NewLabelWithStyle(
@@ -178,56 +165,185 @@ func showSettingsWindow(app *AppState) {
 
 		ttlLabels := make([]string, 0, len(static.TTLOptions))
 		ttlByLabel := map[string]int{}
+		labelByTTL := map[int]string{}
 		for _, opt := range static.TTLOptions {
-			ttlLabels = append(ttlLabels, opt.Label)
-			ttlByLabel[opt.Label] = opt.Minutes
+			label := opt.Label
+			if !floor.AllowsTTL(opt.Minutes) {
+				label += " — managed by your organization"
+			}
+			ttlLabels = append(ttlLabels, label)
+			ttlByLabel[label] = opt.Minutes
+			labelByTTL[opt.Minutes] = label
 		}
 		ttlSelect := widget.NewSelect(ttlLabels, nil)
-		configuredTTL := viper.GetInt("ttl")
-		for _, opt := range static.TTLOptions {
-			if opt.Minutes == configuredTTL {
-				ttlSelect.SetSelected(opt.Label)
-				break
+		currentTTL := floor.EffectiveTTL(viper.GetInt("ttl"))
+		showTTL := func() {
+			if label, ok := labelByTTL[currentTTL]; ok {
+				ttlSelect.SetSelected(label)
+			} else {
+				ttlSelect.ClearSelected()
 			}
 		}
+		showTTL()
 		ttlSelect.OnChanged = func(sel string) {
 			minutes, ok := ttlByLabel[sel]
-			if !ok {
+			if !ok || minutes == currentTTL {
+				return
+			}
+			if !floor.AllowsTTL(minutes) {
+				showTTL()
+				dialog.ShowInformation("Managed setting", managedText, w)
 				return
 			}
 			prev := viper.GetInt("ttl")
-			if minutes == prev {
-				return
-			}
 			viper.Set("ttl", minutes)
 			if err := viper.WriteConfig(); err != nil {
 				viper.Set("ttl", prev)
 				log.Printf("Failed to save default unlock TTL: %v", err)
+				showTTL()
 				return
 			}
-			app.UnlockTTL.Store(time.Duration(minutes) * time.Minute)
+			app.ApplySettings()
+			currentTTL = minutes
 		}
+
+		minHeader := widget.NewLabelWithStyle(
+			"Minimum settings",
+			fyne.TextAlignLeading,
+			fyne.TextStyle{Bold: true},
+		)
+		minIntro := widget.NewLabel(
+			"An administrator can set minimum settings for every user of this " +
+				"computer, through group policy or in " + policy.Location + ". " +
+				"Changing them here asks for administrator rights.",
+		)
+		minIntro.Wrapping = fyne.TextWrapWord
+		minState := widget.NewLabel(describeFloor(floor))
+		minState.Wrapping = fyne.TextWrapWord
+		minBtn := widget.NewButton("Change minimum settings…", func() {
+			showFloorDialog(app, w)
+		})
 
 		closeBtn := widget.NewButton("Close", func() { w.Close() })
 
-		items := []fyne.CanvasObject{header, intro}
-		if radio != nil {
-			items = append(items, radio)
-		}
-		items = append(items,
+		content := container.NewVBox(
+			header,
+			intro,
+			radio,
 			explain,
 			widget.NewSeparator(),
 			ttlHeader,
 			ttlIntro,
 			ttlSelect,
 			widget.NewSeparator(),
+			minHeader,
+			minIntro,
+			minState,
+			container.NewHBox(minBtn),
+			widget.NewSeparator(),
 			container.NewHBox(closeBtn),
 		)
-		content := container.NewVBox(items...)
 
 		w.SetContent(container.NewVScroll(content))
 		w.Show()
 	})
+}
+
+func describeFloor(f policy.Floor) string {
+	if f == (policy.Floor{}) {
+		return "No minimum settings are configured."
+	}
+	lines := []string{}
+	if f.RetrievalApproval {
+		lines = append(lines, "• Approval is required for every retrieval.")
+	}
+	if f.MinApprovalFactor == static.ApprovalFactorOSLocal {
+		if policy.FactorEnforced {
+			lines = append(lines, "• Every approval requires Windows Hello or a security key.")
+		} else {
+			lines = append(lines, "• Windows Hello or a security key is required, which this platform does not offer; the requirement is ignored.")
+		}
+	}
+	if f.MaxUnlockTTL > 0 {
+		lines = append(lines, fmt.Sprintf("• Vaults stay unlocked for at most %d minutes.", f.MaxUnlockTTL))
+	}
+	if len(lines) == 0 {
+		return "No minimum settings are configured."
+	}
+	return strings.Join(lines, "\n")
+}
+
+func showFloorDialog(app *AppState, parent fyne.Window) {
+	f := app.Floor()
+
+	approvalCheck := widget.NewCheck("Require approval for every retrieval", nil)
+	approvalCheck.SetChecked(f.RetrievalApproval)
+
+	factorCheck := widget.NewCheck("Require Windows Hello or a security key for every approval", nil)
+	factorCheck.SetChecked(f.MinApprovalFactor == static.ApprovalFactorOSLocal)
+
+	const noLimit = "No limit"
+	ttlLabels := []string{noLimit}
+	ttlByLabel := map[string]int{noLimit: 0}
+	selected := noLimit
+	for _, opt := range static.TTLOptions {
+		label := strings.TrimSuffix(opt.Label, " (default)")
+		ttlLabels = append(ttlLabels, label)
+		ttlByLabel[label] = opt.Minutes
+		if opt.Minutes == f.MaxUnlockTTL {
+			selected = label
+		}
+	}
+	if selected == noLimit && f.MaxUnlockTTL > 0 {
+		label := fmt.Sprintf("%d minutes", f.MaxUnlockTTL)
+		ttlLabels = append(ttlLabels, label)
+		ttlByLabel[label] = f.MaxUnlockTTL
+		selected = label
+	}
+	ttlSelect := widget.NewSelect(ttlLabels, nil)
+	ttlSelect.SetSelected(selected)
+
+	items := []fyne.CanvasObject{approvalCheck}
+	if policy.FactorEnforced {
+		items = append(items, factorCheck)
+	}
+	items = append(items, widget.NewLabel("Maximum unlock TTL"), ttlSelect)
+
+	dialog.ShowCustomConfirm("Minimum settings", "Apply", "Cancel", container.NewVBox(items...), func(ok bool) {
+		if !ok {
+			return
+		}
+		next := policy.Floor{
+			RetrievalApproval: approvalCheck.Checked,
+			MaxUnlockTTL:      ttlByLabel[ttlSelect.Selected],
+		}
+		if factorCheck.Checked {
+			next.MinApprovalFactor = static.ApprovalFactorOSLocal
+		}
+		if next == f {
+			return
+		}
+		go func() {
+			err := policy.SaveElevated(next)
+			fyne.Do(func() {
+				switch {
+				case errors.Is(err, policy.ErrElevationCanceled):
+					return
+				case err != nil:
+					log.Printf("policy: minimum settings not saved: %v", err)
+					dialog.ShowError(err, parent)
+					return
+				}
+				log.Printf("policy: minimum settings changed to %+v", next)
+				app.ApplySettings()
+				if !app.RetrievalApproval.Load() {
+					prompt.AutoAllowPending()
+				}
+				parent.Close()
+				showSettingsWindow(app)
+			})
+		}()
+	}, parent)
 }
 
 func assetsIconBytes() []byte {

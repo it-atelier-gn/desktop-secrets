@@ -1,5 +1,3 @@
-//go:build !hardened
-
 package static
 
 const (
@@ -22,6 +20,14 @@ var ApprovalModeOptions = []ApprovalModeOption{
 		Description: "An Allow / Deny dialog appears for every retrieval that isn't " +
 			"already covered by a live grant. Blocks headless processes that have " +
 			"no UI. A local agent able to click buttons in your session can still " +
-			"satisfy it. For agent-safe handling, install the hardened build.",
+			"satisfy it.",
+	},
+	{
+		Mode:  ApprovalModeAdvanced,
+		Label: "Advanced (Windows Hello / security key)",
+		Description: "After Allow, every retrieval also requires an OS-rendered " +
+			"authentication gesture (Windows Hello or a hardware security key). " +
+			"User-space code cannot replay the gesture, so a script or agent " +
+			"running as you cannot grant itself access.",
 	},
 }

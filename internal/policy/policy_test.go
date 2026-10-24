@@ -1,183 +1,107 @@
 package policy
 
 import (
-	"errors"
 	"testing"
 
-	"github.com/spf13/viper"
-
-	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
 	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 )
 
-func TestCompareEqual(t *testing.T) {
-	p := Defaults()
-	if got := Compare(p, p); got != RelEqual {
-		t.Fatalf("identical policies should be RelEqual, got %v", got)
+func TestEmptyFloorKeepsUserChoice(t *testing.T) {
+	var f Floor
+	if f.EffectiveApproval(false) {
+		t.Fatal("empty floor turned approval on")
+	}
+	if got := f.EffectiveFactor(static.ApprovalFactorClick); got != static.ApprovalFactorClick {
+		t.Fatalf("factor = %q", got)
+	}
+	if got := f.EffectiveTTL(240); got != 240 {
+		t.Fatalf("ttl = %d", got)
+	}
+	for _, m := range []static.ApprovalMode{static.ApprovalModeOff, static.ApprovalModeStandard, static.ApprovalModeAdvanced} {
+		if !f.AllowsMode(m) {
+			t.Fatalf("empty floor rejects %v", m)
+		}
 	}
 }
 
-func TestCompareStricterRetrieval(t *testing.T) {
-	base := Defaults()
-	base.RetrievalApproval = false
-	c := base
-	c.RetrievalApproval = true
-	if got := Compare(c, base); got != RelStricter {
-		t.Fatalf("enabling retrieval_approval should be stricter, got %v", got)
+func TestFloorRaisesApproval(t *testing.T) {
+	f := Floor{RetrievalApproval: true}
+	if !f.EffectiveApproval(false) {
+		t.Fatal("approval not raised")
+	}
+	if f.AllowsMode(static.ApprovalModeOff) {
+		t.Fatal("off allowed below the floor")
+	}
+	if !f.AllowsMode(static.ApprovalModeStandard) || !f.AllowsMode(static.ApprovalModeAdvanced) {
+		t.Fatal("stricter modes must stay selectable")
 	}
 }
 
-func TestCompareFactorOrdering(t *testing.T) {
-	base := Defaults()
-	base.ApprovalFactorRequired = static.ApprovalFactorOSLocal
-	c := base
-	c.ApprovalFactorRequired = static.ApprovalFactorClick
-	if got := Compare(c, base); got != RelWeaker {
-		t.Fatalf("click after os_local should be weaker, got %v", got)
+func TestFloorFactor(t *testing.T) {
+	f := Floor{MinApprovalFactor: static.ApprovalFactorOSLocal}
+	got := f.EffectiveFactor(static.ApprovalFactorClick)
+	if FactorEnforced {
+		if got != static.ApprovalFactorOSLocal || !f.EffectiveApproval(false) {
+			t.Fatalf("os_local floor not applied: factor=%q", got)
+		}
+		if f.AllowsMode(static.ApprovalModeStandard) || !f.AllowsMode(static.ApprovalModeAdvanced) {
+			t.Fatal("standard must be blocked, advanced allowed")
+		}
+		if f.IgnoredFactor() {
+			t.Fatal("enforced factor reported as ignored")
+		}
+		return
 	}
-	c.ApprovalFactorRequired = "hardware"
-	if got := Compare(c, base); got != RelStricter {
-		t.Fatalf("hardware after os_local should be stricter, got %v", got)
+	if got != static.ApprovalFactorClick || f.EffectiveApproval(false) {
+		t.Fatalf("factor floor must be ignored on this platform: factor=%q", got)
 	}
-}
-
-func TestCompareMixed(t *testing.T) {
-	base := Defaults()
-	base.RetrievalApproval = true
-	base.ApprovalFactorRequired = static.ApprovalFactorOSLocal
-	c := base
-	c.RetrievalApproval = false           // weaker
-	c.ApprovalFactorRequired = "hardware" // stricter
-	if got := Compare(c, base); got != RelMixed {
-		t.Fatalf("mixed change should be RelMixed, got %v", got)
+	if !f.IgnoredFactor() {
+		t.Fatal("ignored factor not reported")
 	}
 }
 
-// memStore is an in-memory Store for testing Reconcile without
-// touching DPAPI / the filesystem.
-type memStore struct {
-	data    *Policy
-	saveErr error
-	loadErr error
-}
-
-func (m *memStore) Load() (*Policy, error) {
-	if m.loadErr != nil {
-		return nil, m.loadErr
+func TestFloorCapsTTL(t *testing.T) {
+	f := Floor{MaxUnlockTTL: 60}
+	if got := f.EffectiveTTL(240); got != 60 {
+		t.Fatalf("ttl = %d, want 60", got)
 	}
-	if m.data == nil {
-		return nil, nil
+	if got := f.EffectiveTTL(15); got != 15 {
+		t.Fatalf("shorter ttl changed to %d", got)
 	}
-	p := *m.data
-	return &p, nil
-}
-
-func (m *memStore) Save(p Policy) error {
-	if m.saveErr != nil {
-		return m.saveErr
-	}
-	cp := p
-	m.data = &cp
-	return nil
-}
-
-func setViperPolicy(p Policy) {
-	viper.Reset()
-	viper.Set("retrieval_approval", p.RetrievalApproval)
-	viper.Set("approval_factor_required", p.ApprovalFactorRequired)
-}
-
-func TestReconcileFirstRun(t *testing.T) {
-	disk := Defaults()
-	setViperPolicy(disk)
-	store := &memStore{}
-	outcome, applied, err := Reconcile(store, nil)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if outcome != OutcomeFirstRun {
-		t.Fatalf("want OutcomeFirstRun, got %v", outcome)
-	}
-	if store.data == nil || *store.data != applied {
-		t.Fatalf("keystore not populated on first run")
+	if f.AllowsTTL(120) || !f.AllowsTTL(60) {
+		t.Fatal("AllowsTTL disagrees with the cap")
 	}
 }
 
-func TestReconcileEqual(t *testing.T) {
-	disk := Defaults()
-	setViperPolicy(disk)
-	store := &memStore{data: &disk}
-	outcome, _, err := Reconcile(store, nil)
-	if err != nil || outcome != OutcomeEqual {
-		t.Fatalf("want OutcomeEqual nil err, got %v / %v", outcome, err)
+func TestArgsRoundTrip(t *testing.T) {
+	for _, f := range []Floor{
+		{},
+		{RetrievalApproval: true, MinApprovalFactor: static.ApprovalFactorOSLocal, MaxUnlockTTL: 60},
+	} {
+		got, err := ParseArgs(f.Args())
+		if err != nil || got != f {
+			t.Fatalf("round trip %+v -> %+v (%v)", f, got, err)
+		}
 	}
 }
 
-func TestReconcileAdoptStricter(t *testing.T) {
-	base := Defaults()
-	base.ApprovalFactorRequired = static.ApprovalFactorClick
-	stricter := base
-	stricter.ApprovalFactorRequired = static.ApprovalFactorOSLocal
-	setViperPolicy(stricter)
-	store := &memStore{data: &base}
-	outcome, applied, err := Reconcile(store, nil)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if outcome != OutcomeAdoptStricter {
-		t.Fatalf("want AdoptStricter, got %v", outcome)
-	}
-	if applied.ApprovalFactorRequired != static.ApprovalFactorOSLocal {
-		t.Fatalf("expected adopted factor os_local, got %s", applied.ApprovalFactorRequired)
+func TestParseArgsRejectsInvalid(t *testing.T) {
+	for _, args := range [][]string{
+		{"true", ""},
+		{"maybe", "", "0"},
+		{"true", "fingerprint", "0"},
+		{"true", "", "-5"},
+		{"true", "", "soon"},
+	} {
+		if _, err := ParseArgs(args); err == nil {
+			t.Fatalf("ParseArgs(%q) accepted", args)
+		}
 	}
 }
 
-func TestReconcileRejectDowngradeNoVerifier(t *testing.T) {
-	base := Defaults()
-	base.ApprovalFactorRequired = static.ApprovalFactorOSLocal
-	weaker := base
-	weaker.ApprovalFactorRequired = static.ApprovalFactorClick
-	setViperPolicy(weaker)
-	store := &memStore{data: &base}
-	outcome, applied, err := Reconcile(store, nil)
-	if !errors.Is(err, ErrDowngradeRejected) {
-		t.Fatalf("want ErrDowngradeRejected, got %v", err)
-	}
-	if outcome != OutcomeRejectedDowngrade {
-		t.Fatalf("want RejectedDowngrade outcome, got %v", outcome)
-	}
-	if applied.ApprovalFactorRequired != static.ApprovalFactorOSLocal {
-		t.Fatalf("policy should remain os_local, got %s", applied.ApprovalFactorRequired)
-	}
-	// Viper should have been reverted to the keystore copy.
-	if viper.GetString("approval_factor_required") != static.ApprovalFactorOSLocal {
-		t.Fatalf("viper not reverted: %s", viper.GetString("approval_factor_required"))
-	}
-}
-
-func TestReconcileAcceptDowngradeVerified(t *testing.T) {
-	base := Defaults()
-	base.ApprovalFactorRequired = static.ApprovalFactorOSLocal
-	weaker := base
-	weaker.ApprovalFactorRequired = static.ApprovalFactorClick
-	setViperPolicy(weaker)
-	store := &memStore{data: &base}
-	called := false
-	ok := func(reason string) (osauth.Factor, error) {
-		called = true
-		return osauth.FactorOSLocal, nil
-	}
-	outcome, applied, err := Reconcile(store, ok)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if !called {
-		t.Fatalf("verifier should have been called for downgrade")
-	}
-	if outcome != OutcomeAdoptWeakerVerified {
-		t.Fatalf("want AdoptWeakerVerified, got %v", outcome)
-	}
-	if applied.ApprovalFactorRequired != static.ApprovalFactorClick {
-		t.Fatalf("expected adopted factor click, got %s", applied.ApprovalFactorRequired)
+func TestParseArgsClickMeansNoMinimum(t *testing.T) {
+	f, err := ParseArgs([]string{"false", static.ApprovalFactorClick, "0"})
+	if err != nil || f.MinApprovalFactor != "" {
+		t.Fatalf("got %+v, %v", f, err)
 	}
 }

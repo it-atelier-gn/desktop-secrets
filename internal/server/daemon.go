@@ -10,10 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/it-atelier-gn/desktop-secrets/internal/buildmode"
 	"github.com/it-atelier-gn/desktop-secrets/internal/config"
 	"github.com/it-atelier-gn/desktop-secrets/internal/memprotect"
-	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
 	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/shm"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
@@ -57,32 +55,6 @@ func RunDaemon() {
 		log.Fatalf("Failed to initialize config: %v", err)
 	}
 
-	if buildmode.Hardened {
-		if err := ensureHardenedEnrollment(); err != nil {
-			log.Fatalf("hardened build refuses to start: %v", err)
-		}
-	} else {
-		if exists, _ := policy.MarkerExists(); exists {
-			log.Fatalf("hardened-build marker present on this machine. Refusing to start the lite build. To intentionally downgrade run `getsec --allow-downgrade` once.")
-		}
-	}
-
-	if store, err := policy.DefaultStore(); err == nil {
-		outcome, applied, err := policy.Reconcile(store, func(reason string) (osauth.Factor, error) {
-			return osauth.Verify(reason)
-		})
-		switch {
-		case err == policy.ErrDowngradeRejected:
-			log.Printf("policy: on-disk downgrade rejected; reverted to keystore policy %+v", applied)
-		case err != nil:
-			log.Printf("policy: reconcile failed: %v", err)
-		default:
-			log.Printf("policy: reconcile outcome=%d applied=%+v", outcome, applied)
-		}
-	} else {
-		log.Printf("policy: keystore unavailable, skipping reconcile: %v", err)
-	}
-
 	if err := utils.EnsureSingleInstance("desktop-secrets.lock"); err != nil {
 		log.Fatalf("Another instance appears to be running: %v", err)
 	}
@@ -92,6 +64,12 @@ func RunDaemon() {
 	defer stop()
 
 	appState := NewAppState()
+	if floor := appState.Floor(); floor != (policy.Floor{}) {
+		log.Printf("policy: minimum settings from %s: %+v", policy.Location, floor)
+		if floor.IgnoredFactor() {
+			log.Printf("policy: minimum approval factor %s is not available on this platform and is ignored", floor.MinApprovalFactor)
+		}
+	}
 
 	if err := appState.KP.LoadAliases(); err != nil {
 		log.Printf("Failed to load aliases: %v", err)
@@ -115,7 +93,7 @@ func RunDaemon() {
 
 	serverErrCh := make(chan error, 1)
 	go func() {
-		serverErrCh <- appState.Server.Serve() // blocking call until shutdown
+		serverErrCh <- appState.Server.Serve()
 	}()
 
 	st := &shm.DaemonState{Endpoint: endpoint, Token: token, PID: os.Getpid()}
@@ -125,7 +103,7 @@ func RunDaemon() {
 		log.Printf("shared memory publish failed (client discovery may not work): %v", err)
 	}
 	if shmCleanup != nil {
-		defer shmCleanup() // keep open for process lifetime
+		defer shmCleanup()
 	}
 
 	go func() {

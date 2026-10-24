@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/approval"
@@ -13,6 +15,7 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keychain"
 	"github.com/it-atelier-gn/desktop-secrets/internal/onepassword"
+	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/user"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
@@ -106,12 +109,17 @@ type AppState struct {
 	Approvals         *approval.Store
 	Gate              *approval.Gate
 	Audit             *audit.Logger
+	floor             atomic.Pointer[policy.Floor]
 
 	Server *DaemonServer
 }
 
 func NewAppState() *AppState {
-	ttl := time.Duration(viper.GetInt("ttl")) * time.Minute
+	floor, err := policy.Load()
+	if err != nil {
+		log.Printf("policy: minimum settings in %s unreadable: %v", policy.Location, err)
+	}
+	ttl := time.Duration(floor.EffectiveTTL(viper.GetInt("ttl"))) * time.Minute
 	store := approval.NewStore()
 	a := &AppState{
 		KP:          keepass.NewKPManager(),
@@ -125,13 +133,14 @@ func NewAppState() *AppState {
 		ONEPASSWORD: onepassword.NewManager(ttl),
 		UnlockTTL:   utils.AtomicDuration{},
 		Approvals:   store,
-		Gate: approval.NewGateWithVerifier(store, nil,
-			buildVerifier(),
-			func() string { return viper.GetString("approval_factor_required") },
-		),
 	}
+	a.floor.Store(&floor)
+	a.Gate = approval.NewGateWithVerifier(store, nil,
+		buildVerifier(),
+		func() string { return a.Floor().EffectiveFactor(viper.GetString("approval_factor_required")) },
+	)
 	a.UnlockTTL.Store(ttl)
-	a.RetrievalApproval.Store(viper.GetBool("retrieval_approval"))
+	a.RetrievalApproval.Store(floor.EffectiveApproval(viper.GetBool("retrieval_approval")))
 
 	a.USER.SetUnlockTTL(&a.UnlockTTL)
 	a.KP.SetUnlockTTL(&a.UnlockTTL)
@@ -152,4 +161,22 @@ func NewAppState() *AppState {
 	}
 
 	return a
+}
+
+func (a *AppState) Floor() policy.Floor {
+	if f := a.floor.Load(); f != nil {
+		return *f
+	}
+	return policy.Floor{}
+}
+
+func (a *AppState) ApplySettings() {
+	if floor, err := policy.Load(); err != nil {
+		log.Printf("policy: minimum settings in %s unreadable, keeping the previous ones: %v", policy.Location, err)
+	} else {
+		a.floor.Store(&floor)
+	}
+	floor := a.Floor()
+	a.RetrievalApproval.Store(floor.EffectiveApproval(viper.GetBool("retrieval_approval")))
+	a.UnlockTTL.Store(time.Duration(floor.EffectiveTTL(viper.GetInt("ttl"))) * time.Minute)
 }

@@ -1,107 +1,94 @@
 package policy
 
 import (
-	"encoding/json"
+	"fmt"
+	"strconv"
 
 	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 )
 
-const SchemaVersion = 1
+const SetFlag = "--set-machine-policy"
 
-type Policy struct {
-	Version                int    `json:"version"`
-	RetrievalApproval      bool   `json:"retrieval_approval"`
-	ApprovalFactorRequired string `json:"approval_factor_required"`
+type Floor struct {
+	RetrievalApproval bool
+	MinApprovalFactor string
+	MaxUnlockTTL      int
 }
 
-func Defaults() Policy {
-	return Policy{
-		Version:                SchemaVersion,
-		RetrievalApproval:      static.DefaultRetrievalApproval,
-		ApprovalFactorRequired: static.DefaultApprovalFactor,
+func (f Floor) factorEnforced() bool {
+	return FactorEnforced && f.MinApprovalFactor == static.ApprovalFactorOSLocal
+}
+
+func (f Floor) IgnoredFactor() bool {
+	return !FactorEnforced && f.MinApprovalFactor == static.ApprovalFactorOSLocal
+}
+
+func (f Floor) EffectiveApproval(user bool) bool {
+	return user || f.RetrievalApproval || f.factorEnforced()
+}
+
+func (f Floor) EffectiveFactor(user string) string {
+	if f.factorEnforced() {
+		return static.ApprovalFactorOSLocal
 	}
+	return user
 }
 
-func (p Policy) Marshal() ([]byte, error) {
-	if p.Version == 0 {
-		p.Version = SchemaVersion
+func (f Floor) EffectiveTTL(user int) int {
+	if f.MaxUnlockTTL > 0 && user > f.MaxUnlockTTL {
+		return f.MaxUnlockTTL
 	}
-	return json.Marshal(p)
+	return user
 }
 
-func Unmarshal(b []byte) (Policy, error) {
-	out := Defaults()
-	if err := json.Unmarshal(b, &out); err != nil {
-		return Policy{}, err
-	}
-	return out, nil
+func (f Floor) MinMode() static.ApprovalMode {
+	return static.DeriveApprovalMode(f.EffectiveApproval(false), f.EffectiveFactor(static.ApprovalFactorClick))
 }
 
-func factorRank(s string) int {
-	switch s {
-	case "hardware":
-		return 3
-	case "os_remote_passkey":
+func (f Floor) AllowsMode(m static.ApprovalMode) bool {
+	return modeRank(m) >= modeRank(f.MinMode())
+}
+
+func (f Floor) AllowsTTL(minutes int) bool {
+	return f.EffectiveTTL(minutes) == minutes
+}
+
+func modeRank(m static.ApprovalMode) int {
+	switch m {
+	case static.ApprovalModeAdvanced:
 		return 2
-	case static.ApprovalFactorOSLocal:
+	case static.ApprovalModeStandard:
 		return 1
 	default:
 		return 0
 	}
 }
 
-type Relation int
-
-const (
-	RelEqual Relation = iota
-	RelStricter
-	RelWeaker
-	RelMixed
-)
-
-func compareBoolStricterTrue(c, b bool) int {
-	switch {
-	case c == b:
-		return 0
-	case c && !b:
-		return 1
-	default:
-		return -1
+func normalizeFactor(s string) string {
+	if s == static.ApprovalFactorOSLocal {
+		return s
 	}
+	return ""
 }
 
-func Compare(candidate, baseline Policy) Relation {
-	scores := []int{
-		compareBoolStricterTrue(candidate.RetrievalApproval, baseline.RetrievalApproval),
-	}
-	cr := factorRank(candidate.ApprovalFactorRequired)
-	br := factorRank(baseline.ApprovalFactorRequired)
-	switch {
-	case cr > br:
-		scores = append(scores, 1)
-	case cr < br:
-		scores = append(scores, -1)
-	default:
-		scores = append(scores, 0)
-	}
+func (f Floor) Args() []string {
+	return []string{strconv.FormatBool(f.RetrievalApproval), normalizeFactor(f.MinApprovalFactor), strconv.Itoa(f.MaxUnlockTTL)}
+}
 
-	hasStricter, hasWeaker := false, false
-	for _, s := range scores {
-		switch {
-		case s > 0:
-			hasStricter = true
-		case s < 0:
-			hasWeaker = true
-		}
+func ParseArgs(args []string) (Floor, error) {
+	if len(args) != 3 {
+		return Floor{}, fmt.Errorf("expected 3 values (retrieval approval, minimum factor, maximum unlock TTL), got %d", len(args))
 	}
-	switch {
-	case !hasStricter && !hasWeaker:
-		return RelEqual
-	case hasStricter && !hasWeaker:
-		return RelStricter
-	case !hasStricter && hasWeaker:
-		return RelWeaker
-	default:
-		return RelMixed
+	approval, err := strconv.ParseBool(args[0])
+	if err != nil {
+		return Floor{}, fmt.Errorf("retrieval approval: %w", err)
 	}
+	if args[1] != "" && args[1] != static.ApprovalFactorClick && args[1] != static.ApprovalFactorOSLocal {
+		return Floor{}, fmt.Errorf("unknown approval factor %q", args[1])
+	}
+	ttl, err := strconv.Atoi(args[2])
+	if err != nil || ttl < 0 {
+		return Floor{}, fmt.Errorf("maximum unlock TTL: %q is not a number of minutes", args[2])
+	}
+	return Floor{RetrievalApproval: approval, MinApprovalFactor: normalizeFactor(args[1]), MaxUnlockTTL: ttl}, nil
 }

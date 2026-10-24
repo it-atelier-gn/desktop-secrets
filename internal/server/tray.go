@@ -4,14 +4,12 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"log"
 	"net/url"
 	"time"
 
 	"github.com/it-atelier-gn/desktop-secrets/assets"
 	"github.com/it-atelier-gn/desktop-secrets/internal/cacheinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
-	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/version"
 
 	"fyne.io/fyne/v2"
@@ -250,40 +248,6 @@ func showAboutDialog() {
 		w.Show()
 		d.Show()
 	})
-}
-
-func commitPolicyChange(verifyWeaken func() bool) bool {
-	store, err := policy.DefaultStore()
-	if err != nil {
-		log.Printf("policy: keystore unavailable: %v", err)
-		return false
-	}
-	candidate := policy.FromViper()
-	stored, err := store.Load()
-	if err != nil {
-		log.Printf("policy: keystore load failed: %v", err)
-		return false
-	}
-	if stored == nil {
-		return store.Save(candidate) == nil
-	}
-	switch policy.Compare(candidate, *stored) {
-	case policy.RelEqual, policy.RelStricter:
-		return store.Save(candidate) == nil
-	case policy.RelWeaker, policy.RelMixed:
-		if verifyWeaken == nil || !verifyWeaken() {
-			return false
-		}
-		return store.Save(candidate) == nil
-	}
-	return false
-}
-
-func verifyWithHello(reason string) func() bool {
-	return func() bool {
-		_, err := osauth.Verify(reason)
-		return err == nil
-	}
 }
 
 func mustParseURL(s string) *url.URL {

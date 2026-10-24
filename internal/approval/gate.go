@@ -1,14 +1,11 @@
 package approval
 
 import (
-	"log"
 	"sync"
 	"time"
 
-	"github.com/it-atelier-gn/desktop-secrets/internal/buildmode"
 	"github.com/it-atelier-gn/desktop-secrets/internal/clientinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/osauth"
-	"github.com/it-atelier-gn/desktop-secrets/internal/policy"
 	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 )
@@ -140,11 +137,6 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 				return "", ErrOSAuthFailed
 			}
 			factor = string(f)
-			if buildmode.Hardened {
-				if err := policy.WriteMarker(); err != nil {
-					log.Printf("policy: failed to write hardened marker: %v", err)
-				}
-			}
 		}
 	}
 

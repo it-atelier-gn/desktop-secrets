@@ -473,7 +473,7 @@ OPENAI_API_KEY=<mark>••••••••••••</mark></pre>
         <li class="moment">
           <div>
             <h3>It asks for more, you decide</h3>
-            <p>With approvals turned on, an agent that calls <code>getsec</code> on its own gets nothing until you answer this dialog. It shows which program asked and for which secret. Each decision is written to <code>audit.log</code>. The hardened build also asks for Windows Hello or a security key.</p>
+            <p>With approvals turned on, an agent that calls <code>getsec</code> on its own gets nothing until you answer this dialog. It shows which program asked and for which secret. Each decision is written to <code>audit.log</code>. In Advanced mode, Windows Hello or a security key confirms it as well.</p>
           </div>
           <div class="agent-view">
             <div class="who">DesktopSecrets</div>
@@ -538,7 +538,7 @@ OPENAI_API_KEY=<mark>••••••••••••</mark></pre>
         </div>
         <div>
           <dt>Approve each read if you want to</dt>
-          <dd>Turn on a confirmation dialog for every retrieval. The hardened build asks for Windows Hello or a security key each time.</dd>
+          <dd>Turn on a confirmation dialog for every retrieval, optionally confirmed by Windows Hello or a security key. An administrator can set minimum settings for all users of the computer.</dd>
         </div>
         <div>
           <dt>Load into your current shell</dt>
@@ -595,7 +595,7 @@ OPENAI_API_KEY=<mark>••••••••••••</mark></pre>
             <button type="button" class="copy" data-target="cmd-linux">Copy</button>
           </div>
         </div>
-        <p class="fine">Read the scripts before you run them: <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.ps1">install.ps1</a>, <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.sh">install.sh</a>. Binaries for Windows and Linux (x64), including the hardened variant, are on the <a href="https://github.com/it-atelier-gn/desktop-secrets/releases/latest">releases page</a>.</p>
+        <p class="fine">Read the scripts before you run them: <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.ps1">install.ps1</a>, <a href="https://github.com/it-atelier-gn/desktop-secrets/blob/main/docs/install.sh">install.sh</a>. Binaries for Windows and Linux (x64) are on the <a href="https://github.com/it-atelier-gn/desktop-secrets/releases/latest">releases page</a>.</p>
         <p class="fine">To use DesktopSecrets from Go, run <code>go get github.com/it-atelier-gn/desktop-secrets</code> and follow <a href="https://github.com/it-atelier-gn/desktop-secrets#usage-as-library">the library notes</a>.</p>
       </div>
     </div>
