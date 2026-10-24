@@ -72,7 +72,25 @@ func TestScheduledDaemonSurvivesNestedJob(t *testing.T) {
 	if strings.Contains(status, "kill-on-close=true") {
 		t.Fatalf("scheduled child runs in a kill-on-close job: %s", status)
 	}
+	if !strings.Contains(status, "console-visible=false") {
+		t.Fatalf("scheduled child shows a console window: %s", status)
+	}
 	assertSurvives(t, pid)
+}
+
+func TestHeadlessActionRunsThroughConhost(t *testing.T) {
+	path, args := headlessAction(`C:\Program Files\ds\getsec.exe`, []string{"--daemon", "a b"})
+	if !strings.EqualFold(filepath.Base(path), "conhost.exe") || !filepath.IsAbs(path) {
+		t.Fatalf("path = %q", path)
+	}
+	if want := `--headless "C:\Program Files\ds\getsec.exe" --daemon "a b"`; args != want {
+		t.Fatalf("args = %q, want %q", args, want)
+	}
+}
+
+func consoleVisible() bool {
+	hwnd, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleWindow").Call()
+	return hwnd != 0 && windows.IsWindowVisible(windows.HWND(hwnd))
 }
 
 func TestInnerBreakawayStaysInOuterJob(t *testing.T) {
@@ -119,6 +137,9 @@ func TestScheduledDaemonSurvivesJobWithoutBreakaway(t *testing.T) {
 	if strings.Contains(status, "kill-on-close=true") {
 		t.Fatalf("scheduled child runs in a kill-on-close job: %s", status)
 	}
+	if !strings.Contains(status, "console-visible=false") {
+		t.Fatalf("scheduled child shows a console window: %s", status)
+	}
 	assertSurvives(t, pid)
 }
 
@@ -136,7 +157,7 @@ func TestJobHelper(t *testing.T) {
 	case "nested-inner-parent":
 		runNestedInnerParent(t)
 	case "child":
-		data := fmt.Sprintf("%d\n%s", os.Getpid(), JobStatus())
+		data := fmt.Sprintf("%d\n%s console-visible=%v", os.Getpid(), JobStatus(), consoleVisible())
 		if err := os.WriteFile(os.Getenv(jobPidFileEnv), []byte(data), 0o600); err != nil {
 			t.Fatal(err)
 		}

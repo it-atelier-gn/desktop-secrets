@@ -478,7 +478,7 @@ The first `getsec` or `tplenv` call starts a daemon in the background. It keeps 
 | Linux with a systemd user session | As its own systemd user service | `systemctl --user status desktop-secrets-daemon` |
 | Linux without a systemd user session, macOS | In its own session, detached from the terminal | `daemon.log` |
 
-On Windows, a daemon started through the Task Scheduler takes its environment from your Windows user profile, and the `DESKTOP_SECRETS_*` variables of the calling shell are passed on to it. Deleting the task is safe, it is recreated when needed. On Linux, the daemon receives the environment of the shell that started it.
+On Windows, a daemon started through the Task Scheduler takes its environment from your Windows user profile, and the `DESKTOP_SECRETS_*` variables of the calling shell are passed on to it. It runs without a console window. Deleting the task is safe, it is recreated when needed. On Linux, the daemon receives the environment of the shell that started it.
 
 To stop the daemon on Linux, run `systemctl --user stop desktop-secrets-daemon` or choose **Exit** in the tray menu.
 

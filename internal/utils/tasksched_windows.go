@@ -5,6 +5,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -44,14 +45,20 @@ func startScheduledTask(name, exe string, args, env []string) error {
 	if err != nil {
 		return err
 	}
+	path, arguments := headlessAction(exe, append(args, SetenvArgs(env)...))
 	return runScheduledTask(scheduledTask{
 		Name:        name + " " + sid,
 		UserID:      user,
-		Path:        exe,
-		Arguments:   joinArgs(append(args, SetenvArgs(env)...)),
+		Path:        path,
+		Arguments:   arguments,
 		WorkingDir:  filepath.Dir(exe),
 		Description: "Starts the desktop-secrets daemon outside the job object of the calling process.",
 	})
+}
+
+func headlessAction(exe string, args []string) (string, string) {
+	conhost := filepath.Join(os.Getenv("SystemRoot"), "System32", "conhost.exe")
+	return conhost, joinArgs(append([]string{"--headless", exe}, args...))
 }
 
 func joinArgs(args []string) string {
