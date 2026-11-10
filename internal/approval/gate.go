@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -10,37 +11,14 @@ import (
 	"github.com/it-atelier-gn/desktop-secrets/internal/static"
 )
 
-// PromptFunc is the function used to prompt the user when no live
-// grant exists. Defaults to prompt.PromptApproval; tests substitute.
 type PromptFunc func(req prompt.ApprovalRequest) (prompt.ApprovalDecision, error)
 
-// VerifierFunc runs an OS-rendered authentication step after the user
-// clicks Allow on the approval dialog. Returning a non-nil error
-// causes the gate to treat the click as Deny and surface
-// ErrOSAuthFailed to the caller (which logs `os_auth_failed`).
-// osauth.ErrUnsupported is treated as "factor not available" and
-// downgraded to a click-only grant — this keeps the click default
-// safe to run on platforms without the factor wired up.
 type VerifierFunc func(reason string) (osauth.Factor, error)
 
-// FactorRequiredFunc returns the live `approval_factor_required`
-// setting. Read fresh on every Check so a settings change takes
-// effect without restarting the daemon.
 type FactorRequiredFunc func() string
 
-// Evictor removes a cached secret from a provider when the user picks
-// Forget. Each provider that holds a cache implements this; nil is
-// allowed and means "no cache to evict".
 type Evictor func(providerKey string)
 
-// Gate serialises approval prompts per provider key (so concurrent
-// renders asking for the same secret only prompt once) and hides the
-// store + clientinfo plumbing from callers.
-//
-// verifier + factorRequired are optional: when factorRequired returns
-// `os_local` the gate runs verifier after the user clicks Allow. When
-// either hook is nil the gate behaves as in click-only mode — same as
-// the pre-osauth implementation.
 type Gate struct {
 	store          *Store
 	prompter       PromptFunc
@@ -54,8 +32,6 @@ func NewGate(store *Store, prompter PromptFunc) *Gate {
 	return NewGateWithVerifier(store, prompter, nil, nil)
 }
 
-// NewGateWithVerifier wires the optional OS-factor verifier. Pass nil
-// for verifier or factorRequired to retain click-only behaviour.
 func NewGateWithVerifier(store *Store, prompter PromptFunc, verifier VerifierFunc, factorRequired FactorRequiredFunc) *Gate {
 	if prompter == nil {
 		prompter = prompt.PromptApproval
@@ -80,14 +56,6 @@ func (g *Gate) lockFor(key string) *sync.Mutex {
 	return mu
 }
 
-// Check enforces approval for (pid, providerKey). When a live grant
-// exists Check returns immediately. Otherwise it prompts the user
-// (serialised per key) and updates the store.
-//
-// Returns ("", nil) on Allow with no OS factor wired (legacy
-// behaviour), (factor, nil) when an OS factor verified the grant,
-// ErrDenied on Deny, ErrForgotten on Forget, or ErrOSAuthFailed when
-// the user clicked Allow but the OS prompt did not verify.
 func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) (string, error) {
 	info := clientinfo.Lookup(pid)
 	grantExe := effectiveGrantExe(info)
@@ -125,26 +93,74 @@ func (g *Gate) Check(pid int, providerKey, providerRef string, evictor Evictor) 
 		return "", ErrDenied
 	}
 
-	factor := string(osauth.FactorClick)
-	if g.factorRequired != nil && g.verifier != nil {
-		switch g.factorRequired() {
-		case static.ApprovalFactorOSLocal:
-			f, vErr := g.verifier("Allow " + providerRef)
-			if vErr != nil {
-				if vErr == osauth.ErrUnsupported {
-					break
-				}
-				return "", ErrOSAuthFailed
-			}
-			factor = string(f)
-		}
+	factor, err := g.verifyFactor("Allow " + providerRef)
+	if err != nil {
+		return "", err
 	}
-
 	if decision.DurationMinutes != static.ApprovalDurationOnce {
-		d := durationFromMinutes(decision.DurationMinutes)
-		g.store.GrantExecutable(grantExe, providerKey, d)
+		g.store.GrantExecutable(grantExe, providerKey, durationFromMinutes(decision.DurationMinutes))
 	}
 	return factor, nil
+}
+
+type BatchItem struct {
+	Key string
+	Ref string
+}
+
+func (g *Gate) CheckBatch(pid int, items []BatchItem) (string, error) {
+	if len(items) == 0 {
+		return "", nil
+	}
+	info := clientinfo.Lookup(pid)
+	grantExe := effectiveGrantExe(info)
+
+	refs := make([]string, len(items))
+	for i, it := range items {
+		refs[i] = it.Ref
+	}
+	decision, err := g.prompter(prompt.ApprovalRequest{
+		ProviderRef:    refs[0],
+		ProviderRefs:   refs,
+		ProcessDisplay: info.EffectiveDisplay(),
+		ProcessDetails: info.EffectiveTooltip(),
+	})
+	if err != nil {
+		return "", err
+	}
+	if !decision.Allow {
+		return "", ErrDenied
+	}
+
+	factor, err := g.verifyFactor(fmt.Sprintf("Allow %d secrets", len(items)))
+	if err != nil {
+		return "", err
+	}
+	if decision.DurationMinutes != static.ApprovalDurationOnce {
+		d := durationFromMinutes(decision.DurationMinutes)
+		for _, it := range items {
+			g.store.GrantExecutable(grantExe, it.Key, d)
+		}
+	}
+	return factor, nil
+}
+
+func (g *Gate) verifyFactor(reason string) (string, error) {
+	factor := string(osauth.FactorClick)
+	if g.factorRequired == nil || g.verifier == nil {
+		return factor, nil
+	}
+	if g.factorRequired() != static.ApprovalFactorOSLocal {
+		return factor, nil
+	}
+	f, err := g.verifier(reason)
+	if err == osauth.ErrUnsupported {
+		return factor, nil
+	}
+	if err != nil {
+		return "", ErrOSAuthFailed
+	}
+	return string(f), nil
 }
 
 func effectiveGrantExe(info clientinfo.Info) string {
@@ -160,14 +176,10 @@ func effectiveGrantExe(info clientinfo.Info) string {
 	return info.ExePath
 }
 
-// Store exposes the underlying store for tray-side controls (e.g.
-// "Forget all approvals").
 func (g *Gate) Store() *Store {
 	return g.store
 }
 
-// IsApproved reports whether a live grant exists for (pid, providerKey).
-// Resolves clientinfo internally so callers don't need to.
 func (g *Gate) IsApproved(pid int, providerKey string) bool {
 	info := clientinfo.Lookup(pid)
 	return g.store.Check(effectiveGrantExe(info), providerKey)
@@ -180,16 +192,10 @@ func durationFromMinutes(m int) time.Duration {
 	return time.Duration(m) * time.Minute
 }
 
-// ErrDenied is returned by Gate.Check when the user denies approval.
 var ErrDenied = denyErr{}
 
-// ErrForgotten is returned by Gate.Check when the user picks Forget.
 var ErrForgotten = forgetErr{}
 
-// ErrOSAuthFailed is returned when the user clicked Allow but the
-// OS-level second factor (Windows Hello / etc.) did not verify. The
-// click is discarded — no grant is recorded — and the caller should
-// log `os_auth_failed` in the audit record.
 var ErrOSAuthFailed = osAuthErr{}
 
 type denyErr struct{}

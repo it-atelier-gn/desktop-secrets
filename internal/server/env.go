@@ -27,6 +27,8 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 		return lines, []error{errors.New("resolvers not configured")}
 	}
 
+	ctx = approveBatch(ctx, app, lines)
+
 	for _, line := range lines {
 		trim := strings.TrimSpace(line)
 		if trim == "" || strings.HasPrefix(trim, "#") {
@@ -47,12 +49,7 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 			continue
 		}
 
-		lower := strings.ToLower(val)
-		if !strings.HasPrefix(lower, "keepass(") && !strings.HasPrefix(lower, "user(") &&
-			!strings.HasPrefix(lower, "wincred(") && !strings.HasPrefix(lower, "awssm(") &&
-			!strings.HasPrefix(lower, "awsps(") && !strings.HasPrefix(lower, "azkv(") &&
-			!strings.HasPrefix(lower, "gcpsm(") && !strings.HasPrefix(lower, "keychain(") &&
-			!strings.HasPrefix(lower, "vault(") && !strings.HasPrefix(lower, "op(") {
+		if !isProviderExpr(val) {
 			out = append(out, key+"="+val)
 			continue
 		}
@@ -69,6 +66,81 @@ func ResolveEnvLines(ctx context.Context, app *AppState, lines []string) ([]stri
 	return out, errs
 }
 
+var providerPrefixes = []string{
+	"keepass(", "user(", "wincred(", "awssm(", "awsps(",
+	"azkv(", "gcpsm(", "keychain(", "vault(", "op(",
+}
+
+func isProviderExpr(val string) bool {
+	lower := strings.ToLower(strings.TrimSpace(val))
+	for _, p := range providerPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+type batchCollector struct {
+	seen  map[string]bool
+	items []approval.BatchItem
+}
+
+func (c *batchCollector) add(key, ref string) {
+	if c.seen[key] {
+		return
+	}
+	c.seen[key] = true
+	c.items = append(c.items, approval.BatchItem{Key: key, Ref: ref})
+}
+
+type batchResult struct {
+	keys   map[string]bool
+	factor string
+	err    error
+}
+
+type ctxKeyBatchCollector struct{}
+
+type ctxKeyBatchResult struct{}
+
+func approveBatch(ctx context.Context, app *AppState, lines []string) context.Context {
+	if app.Gate == nil || !app.RetrievalApproval.Load() {
+		return ctx
+	}
+	pid := ClientPIDFromContext(ctx)
+	c := &batchCollector{seen: map[string]bool{}}
+	collectCtx := context.WithValue(ctx, ctxKeyBatchCollector{}, c)
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		rawKey, rawVal, ok := strings.Cut(line, "=")
+		if !ok || !env.IsValidKey(strings.TrimSpace(rawKey)) || !isProviderExpr(rawVal) {
+			continue
+		}
+		_, _ = parseAndResolve(collectCtx, app, 0, strings.TrimSpace(rawVal))
+	}
+
+	var pending []approval.BatchItem
+	for _, it := range c.items {
+		if !app.Gate.IsApproved(pid, it.Key) {
+			pending = append(pending, it)
+		}
+	}
+	if len(pending) < 2 {
+		return ctx
+	}
+
+	factor, err := app.Gate.CheckBatch(pid, pending)
+	res := &batchResult{keys: make(map[string]bool, len(pending)), factor: factor, err: err}
+	for _, it := range pending {
+		res.keys[it.Key] = true
+	}
+	return context.WithValue(ctx, ctxKeyBatchResult{}, res)
+}
+
 func gate(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, fn func() (string, error)) (string, error) {
 	return gateWithUnlock(ctx, app, providerKey, providerRef, evictor, nil, fn)
 }
@@ -76,6 +148,10 @@ func gate(ctx context.Context, app *AppState, providerKey, providerRef string, e
 func gateWithUnlock(ctx context.Context, app *AppState, providerKey, providerRef string, evictor approval.Evictor, willPrompt func() bool, fn func() (string, error)) (string, error) {
 	if app.Gate == nil {
 		return fn()
+	}
+	if c, ok := ctx.Value(ctxKeyBatchCollector{}).(*batchCollector); ok {
+		c.add(providerKey, providerRef)
+		return "", nil
 	}
 	pid := ClientPIDFromContext(ctx)
 	info := clientinfo.InfoFromContext(ctx)
@@ -98,6 +174,15 @@ func gateWithUnlock(ctx context.Context, app *AppState, providerKey, providerRef
 
 	if app.Gate.IsApproved(pid, providerKey) {
 		app.Audit.LogDecision(info, audit.DecisionCached, providerKey, providerRef, "")
+		return fn()
+	}
+
+	if b, ok := ctx.Value(ctxKeyBatchResult{}).(*batchResult); ok && b.keys[providerKey] {
+		if b.err != nil {
+			logGateError(app, info, providerKey, providerRef, b.err)
+			return "", b.err
+		}
+		app.Audit.LogDecisionWithFactor(info, audit.DecisionAllowed, b.factor, providerKey, providerRef, "")
 		return fn()
 	}
 

@@ -109,6 +109,8 @@ Choose in the tray menu under **Settings** whether the daemon asks before handin
 | Standard | Allow / Deny dialog |
 | Advanced *(Windows)* | Allow / Deny, then Windows Hello or a security key |
 
+When one `tplenv` call needs several secrets without a live grant, a single dialog lists them all, and your choice applies to every secret in the list.
+
 If Windows Hello is not set up, Advanced asks you to register a security key. To register a different key, delete `webauthn.cred` in the configuration directory.
 
 ### Minimum settings for all users

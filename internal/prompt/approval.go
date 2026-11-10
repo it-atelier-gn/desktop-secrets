@@ -50,17 +50,11 @@ func AutoAllowPending() {
 	}
 }
 
-// Display caps for fields rendered in the approval dialog. Both originate
-// from the client, so unbounded content could spoof the dialog layout.
 const (
 	maxProviderRefDisplay = 256
 	maxClientDisplayLen   = 256
 )
 
-// sanitizeTooltip preserves newlines (multi-line tooltip layout) but
-// collapses other control characters and caps total length. Same goal
-// as sanitizeForDisplay: a crafted ClientDetails string must not be
-// able to inject arbitrary control sequences into our overlay.
 func sanitizeTooltip(s string) string {
 	const maxLen = 1024
 	var b strings.Builder
@@ -83,9 +77,6 @@ func sanitizeTooltip(s string) string {
 	return out
 }
 
-// sanitizeForDisplay collapses control characters to spaces and truncates.
-// A crafted ProviderRef with newlines would otherwise inject paragraphs in
-// the same visual region as our own labels.
 func sanitizeForDisplay(s string, maxLen int) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -105,6 +96,7 @@ func sanitizeForDisplay(s string, maxLen int) string {
 
 type ApprovalRequest struct {
 	ProviderRef      string
+	ProviderRefs     []string
 	ProcessDisplay   string
 	ProcessDetails   string
 	HasExistingGrant bool
@@ -116,8 +108,6 @@ type ApprovalDecision struct {
 	DurationMinutes int
 }
 
-// PromptApproval shows the standalone approval dialog (no unlock
-// fields). Blocks the calling goroutine until the user chooses.
 func PromptApproval(req ApprovalRequest) (ApprovalDecision, error) {
 	resultCh := make(chan any, 1)
 	a := fyne.CurrentApp()
@@ -149,10 +139,6 @@ func PromptApproval(req ApprovalRequest) (ApprovalDecision, error) {
 	return ApprovalDecision{}, fmt.Errorf("unexpected approval result")
 }
 
-// PromptApprovalWithKeePass shows a single dialog combining approval
-// header + KeePass unlock fields. The Check callback in opts is
-// invoked when the user clicks an Allow button. On Check failure the
-// dialog shows the error and stays open.
 func PromptApprovalWithKeePass(req ApprovalRequest, opts *KeepassOptions) (ApprovalDecision, *PromptResult, error) {
 	if opts == nil {
 		return ApprovalDecision{}, nil, fmt.Errorf("KeepassOptions required")
@@ -208,19 +194,16 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 		processLbl.Wrapping = fyne.TextWrapWord
 		processWidget = processLbl
 	}
-	refLbl := widget.NewLabel(sanitizeForDisplay(req.ProviderRef, maxProviderRefDisplay))
-	refLbl.Wrapping = fyne.TextWrapWord
-	refLbl.TextStyle = fyne.TextStyle{Monospace: true}
+	refHeading, refWidget := buildRefWidget(req)
 
 	header := container.NewVBox(
 		widget.NewLabelWithStyle("Allow secret access?", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabel("Process:"),
 		processWidget,
-		widget.NewLabel("Secret reference:"),
-		refLbl,
+		widget.NewLabel(refHeading),
+		refWidget,
 	)
 
-	// Optional KeePass unlock body.
 	var keyfileBox *fyne.Container
 	var passwordEntry *widget.Entry
 	var useKeyfile *widget.Check
@@ -264,8 +247,6 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 		passwordEntry.SetPlaceHolder("Enter Master Password")
 	}
 
-	// Allow handler (shared by both rows). scope and durationSelect
-	// determine what gets recorded.
 	allowFn := func() {
 		ttl := durationMap[durationSelect.Selected]
 		ApprovalGrantPersister(ttl)
@@ -347,6 +328,9 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 		w.Resize(fyne.NewSize(560, 440))
 	} else {
 		center = container.NewVBox(header)
+		if len(req.ProviderRefs) > 1 {
+			w.Resize(fyne.NewSize(560, 420))
+		}
 	}
 
 	w.SetContent(container.NewBorder(nil, bottom, nil, nil, center))
@@ -359,6 +343,42 @@ func buildApprovalUI(w fyne.Window, req ApprovalRequest, kpOpts *KeepassOptions,
 	if passwordEntry != nil {
 		w.Canvas().Focus(passwordEntry)
 	}
+}
+
+func refHeadingFor(req ApprovalRequest) string {
+	if len(req.ProviderRefs) > 1 {
+		return fmt.Sprintf("Secret references (%d):", len(req.ProviderRefs))
+	}
+	return "Secret reference:"
+}
+
+func displayRefs(req ApprovalRequest) []string {
+	refs := req.ProviderRefs
+	if len(refs) <= 1 {
+		refs = []string{req.ProviderRef}
+	}
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = sanitizeForDisplay(r, maxProviderRefDisplay)
+	}
+	return out
+}
+
+func buildRefWidget(req ApprovalRequest) (string, fyne.CanvasObject) {
+	refs := displayRefs(req)
+	box := container.NewVBox()
+	for _, r := range refs {
+		lbl := widget.NewLabel(r)
+		lbl.Wrapping = fyne.TextWrapWord
+		lbl.TextStyle = fyne.TextStyle{Monospace: true}
+		box.Add(lbl)
+	}
+	if len(refs) == 1 {
+		return refHeadingFor(req), box
+	}
+	scroll := container.NewVScroll(box)
+	scroll.SetMinSize(fyne.NewSize(0, 140))
+	return refHeadingFor(req), scroll
 }
 
 var (
@@ -388,10 +408,6 @@ func buildApprovalDurationSelect() (*widget.Select, map[string]int) {
 	return sel, m
 }
 
-// ttlForUnlock chooses how long to keep the unlocked vault. The user's
-// approval-duration choice steers it: "until restart" (-1) maps to the
-// daemon's current default unlock TTL since vaults must have a finite
-// lifetime; numeric minutes map directly.
 func ttlForUnlock(approvalMinutes, defaultUnlockMinutes int) int {
 	if approvalMinutes <= 0 {
 		return defaultUnlockMinutes

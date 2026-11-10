@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/it-atelier-gn/desktop-secrets/internal/approval"
 	"github.com/it-atelier-gn/desktop-secrets/internal/cacheinfo"
 	"github.com/it-atelier-gn/desktop-secrets/internal/keepass"
+	"github.com/it-atelier-gn/desktop-secrets/internal/prompt"
 	"github.com/it-atelier-gn/desktop-secrets/internal/utils"
 	"reflect"
 	"slices"
@@ -12,11 +14,8 @@ import (
 	"time"
 )
 
-// --- Fake resolvers used by tests ---
-
 type fakeUserResolver struct {
 	calls []string
-	// map title -> password
 	creds map[string]string
 	err   error
 }
@@ -44,9 +43,7 @@ func (f *fakeUserResolver) CachedKeys() []cacheinfo.Entry { return nil }
 func (f *fakeUserResolver) HasCached(string) bool { return false }
 
 type fakeKPResolver struct {
-	// record calls as "vault|title|nested"
 	calls []string
-	// map key "vault|title|nested" -> password
 	creds map[string]string
 	err   error
 }
@@ -91,8 +88,8 @@ func (f *fakeKPResolver) Keyfiles() []keepass.KeyfileInfo { return nil }
 func (f *fakeKPResolver) SetKeyfiles([]keepass.KeyfileInfo) error { return nil }
 
 type fakeAWSResolver struct {
-	secrets    map[string]string // "sm:id|field" -> value
-	parameters map[string]string // "ps:name|field" -> value
+	secrets    map[string]string
+	parameters map[string]string
 	err        error
 }
 
@@ -125,7 +122,6 @@ func (f *fakeAWSResolver) ResolveParameter(_ context.Context, name, field string
 }
 
 type fakeWincredResolver struct {
-	// map "target|field" -> value
 	creds map[string]string
 	err   error
 }
@@ -142,7 +138,7 @@ func (f *fakeWincredResolver) Resolve(_ context.Context, target, field string) (
 }
 
 type fakeAzureResolver struct {
-	secrets map[string]string // "ref|field" -> value
+	secrets map[string]string
 	err     error
 }
 
@@ -163,7 +159,7 @@ func (f *fakeAzureResolver) EvictAll() {}
 func (f *fakeAzureResolver) CachedKeys() []cacheinfo.Entry { return nil }
 
 type fakeGCPResolver struct {
-	secrets map[string]string // "ref|field" -> value
+	secrets map[string]string
 	err     error
 }
 
@@ -184,7 +180,7 @@ func (f *fakeGCPResolver) EvictAll() {}
 func (f *fakeGCPResolver) CachedKeys() []cacheinfo.Entry { return nil }
 
 type fakeKeychainResolver struct {
-	creds map[string]string // "service|account" -> value
+	creds map[string]string
 	err   error
 }
 
@@ -199,7 +195,7 @@ func (f *fakeKeychainResolver) Resolve(_ context.Context, service, account strin
 }
 
 type fakeVaultResolver struct {
-	secrets map[string]string // "path|field" -> value
+	secrets map[string]string
 	err     error
 }
 
@@ -220,7 +216,7 @@ func (f *fakeVaultResolver) EvictAll() {}
 func (f *fakeVaultResolver) CachedKeys() []cacheinfo.Entry { return nil }
 
 type fakeOnePasswordResolver struct {
-	secrets map[string]string // "ref|field" -> value
+	secrets map[string]string
 	err     error
 }
 
@@ -240,7 +236,6 @@ func (f *fakeOnePasswordResolver) EvictAll() {}
 
 func (f *fakeOnePasswordResolver) CachedKeys() []cacheinfo.Entry { return nil }
 
-// newTestApp wires fakes into an AppState. Pass nil for any resolver to use the default empty fake.
 func newTestApp(kp KPResolver, usr UserResolver, wc WincredResolver, awsr AWSResolver, az AzureResolver, gcp GCPResolver, kc KeychainResolver) *AppState {
 	return newTestAppFull(kp, usr, wc, awsr, az, gcp, kc, nil, nil)
 }
@@ -276,8 +271,6 @@ func newTestAppFull(kp KPResolver, usr UserResolver, wc WincredResolver, awsr AW
 	return &AppState{KP: kp, USER: usr, WINCRED: wc, AWS: awsr, AZKV: az, GCPSM: gcp, KEYCHAIN: kc, VAULT: vlt, ONEPASSWORD: op}
 }
 
-// --- Unit tests ---
-
 func TestParseParenContent(t *testing.T) {
 	tests := []struct {
 		in       string
@@ -311,8 +304,8 @@ func TestIndexTopLevelPipe(t *testing.T) {
 		want int
 	}{
 		{"vault|title", 5},
-		{"va(l|u)lt|title", 9},              // pipe inside parens ignored
-		{"vault[keepass(x|y)|z]|title", 21}, // top-level pipe after bracket
+		{"va(l|u)lt|title", 9},
+		{"vault[keepass(x|y)|z]|title", 21},
 		{"nope", -1},
 	}
 
@@ -357,7 +350,6 @@ func TestParseAndResolve_UserAndKeepass_NoNested(t *testing.T) {
 	kp := &fakeKPResolver{creds: map[string]string{"/path.kdbx|entry|": "entry-pass"}}
 	app := newTestApp(kp, user, nil, nil, nil, nil, nil)
 
-	// user(...)
 	got, err := parseAndResolve(ctx, app, 0, "user(alice)")
 	if err != nil {
 		t.Fatalf("user parseAndResolve error: %v", err)
@@ -366,7 +358,6 @@ func TestParseAndResolve_UserAndKeepass_NoNested(t *testing.T) {
 		t.Fatalf("user parseAndResolve = %q, want %q", got, "alice-pass")
 	}
 
-	// keepass(vault|entry) without nested
 	got, err = parseAndResolve(ctx, app, 0, "keepass(/path.kdbx|entry)")
 	if err != nil {
 		t.Fatalf("keepass parseAndResolve error: %v", err)
@@ -378,7 +369,6 @@ func TestParseAndResolve_UserAndKeepass_NoNested(t *testing.T) {
 
 func TestParseAndResolve_Keepass_WithNestedUser(t *testing.T) {
 	ctx := context.Background()
-	// nested user resolves to "inner-pass" which should be passed as nested arg
 	user := &fakeUserResolver{creds: map[string]string{"creds": "inner-pass"}}
 	kp := &fakeKPResolver{
 		creds: map[string]string{
@@ -396,7 +386,6 @@ func TestParseAndResolve_Keepass_WithNestedUser(t *testing.T) {
 		t.Fatalf("nested parseAndResolve = %q, want %q", got, "outer-entry-pass")
 	}
 
-	// verify calls recorded
 	if !reflect.DeepEqual(user.calls, []string{"creds"}) {
 		t.Fatalf("user resolver calls = %v, want %v", user.calls, []string{"creds"})
 	}
@@ -440,7 +429,7 @@ func TestResolveEnvLines_Integration(t *testing.T) {
 	user := &fakeUserResolver{creds: map[string]string{"u1": "u1pass"}}
 	kp := &fakeKPResolver{
 		creds: map[string]string{
-			`creds.kdbx|test 1|`:                              "inner-pass", // used when no nested token
+			`creds.kdbx|test 1|`:                              "inner-pass",
 			`c:\Users\PC\Desktop\second.kdbx|blah|inner-pass`: "final-pass",
 		},
 	}
@@ -461,7 +450,6 @@ func TestResolveEnvLines_Integration(t *testing.T) {
 		t.Fatalf("ResolveEnvLines returned errors: %v", errs)
 	}
 
-	// Expect A replaced with final-pass, B replaced with u1pass, others preserved
 	wantA := "A=final-pass"
 	wantB := "B=u1pass"
 	if !contains(out, wantA) || !contains(out, wantB) {
@@ -475,11 +463,11 @@ func TestParseAndResolve_Malformed(t *testing.T) {
 	user := &fakeUserResolver{}
 
 	cases := []string{
-		"keepass(no-pipe)",             // missing '|'
-		"keepass(vault|)",              // empty title
-		"user()",                       // empty user title
-		"keepass(vault[unclosed|t]|x)", // unclosed bracket inside
-		"keepass(vault|title)extra",    // trailing garbage
+		"keepass(no-pipe)",
+		"keepass(vault|)",
+		"user()",
+		"keepass(vault[unclosed|t]|x)",
+		"keepass(vault|title)extra",
 	}
 
 	app := newTestApp(kp, user, nil, nil, nil, nil, nil)
@@ -524,25 +512,21 @@ func TestParseAndResolve_Wincred(t *testing.T) {
 	}}
 	app := newTestApp(nil, nil, wc, nil, nil, nil, nil)
 
-	// default field (password)
 	got, err := parseAndResolve(ctx, app, 0, "wincred(MyApp/DBPassword)")
 	if err != nil || got != "dbpass" {
 		t.Fatalf("wincred default: got %q, err %v", got, err)
 	}
 
-	// explicit password field
 	got, err = parseAndResolve(ctx, app, 0, "wincred(MyApp/DBPassword|password)")
 	if err != nil || got != "dbpass" {
 		t.Fatalf("wincred password: got %q, err %v", got, err)
 	}
 
-	// username field
 	got, err = parseAndResolve(ctx, app, 0, "wincred(MyApp/DBPassword|username)")
 	if err != nil || got != "dbuser" {
 		t.Fatalf("wincred username: got %q, err %v", got, err)
 	}
 
-	// empty target
 	if _, err := parseAndResolve(ctx, app, 0, "wincred()"); err == nil {
 		t.Fatal("expected error for empty wincred target")
 	}
@@ -564,13 +548,11 @@ func TestParseAndResolve_AWS(t *testing.T) {
 	}
 	app := newTestApp(nil, nil, nil, awsr, nil, nil, nil)
 
-	// awssm — raw string secret
 	got, err := parseAndResolve(ctx, app, 0, "awssm(MyApp/Token)")
 	if err != nil || got != "rawtoken" {
 		t.Fatalf("awssm raw: got %q, err %v", got, err)
 	}
 
-	// awssm — JSON field extraction
 	got, err = parseAndResolve(ctx, app, 0, "awssm(MyApp/DB|username)")
 	if err != nil || got != "dbuser" {
 		t.Fatalf("awssm json username: got %q, err %v", got, err)
@@ -581,24 +563,20 @@ func TestParseAndResolve_AWS(t *testing.T) {
 		t.Fatalf("awssm json password: got %q, err %v", got, err)
 	}
 
-	// awsps — parameter value
 	got, err = parseAndResolve(ctx, app, 0, "awsps(/myapp/prod/api-key)")
 	if err != nil || got != "apikey123" {
 		t.Fatalf("awsps raw: got %q, err %v", got, err)
 	}
 
-	// awsps — JSON field extraction
 	got, err = parseAndResolve(ctx, app, 0, "awsps(/myapp/prod/db|host)")
 	if err != nil || got != "db.prod.internal" {
 		t.Fatalf("awsps json host: got %q, err %v", got, err)
 	}
 
-	// empty secret id
 	if _, err := parseAndResolve(ctx, app, 0, "awssm()"); err == nil {
 		t.Fatal("expected error for empty awssm secret id")
 	}
 
-	// empty parameter name
 	if _, err := parseAndResolve(ctx, app, 0, "awsps()"); err == nil {
 		t.Fatal("expected error for empty awsps parameter name")
 	}
@@ -710,8 +688,88 @@ func TestParseAndResolve_OnePassword(t *testing.T) {
 	}
 }
 
-// --- small helpers used by tests ---
-
 func contains(slice []string, s string) bool {
 	return slices.Contains(slice, s)
+}
+
+func newApprovalTestApp(usr UserResolver, allow bool) (*AppState, *[]prompt.ApprovalRequest) {
+	var reqs []prompt.ApprovalRequest
+	app := newTestApp(nil, usr, nil, nil, nil, nil, nil)
+	app.Gate = approval.NewGate(approval.NewStore(), func(req prompt.ApprovalRequest) (prompt.ApprovalDecision, error) {
+		reqs = append(reqs, req)
+		return prompt.ApprovalDecision{Allow: allow}, nil
+	})
+	app.RetrievalApproval.Store(true)
+	return app, &reqs
+}
+
+func TestResolveEnvLines_BatchApprovalPromptsOnce(t *testing.T) {
+	usr := &fakeUserResolver{creds: map[string]string{"u1": "p1", "u2": "p2"}}
+	app, reqs := newApprovalTestApp(usr, true)
+
+	out, errs := ResolveEnvLines(context.Background(), app, []string{"A=user(u1)", "B=user(u2)", "C=plain"})
+	if len(errs) != 0 {
+		t.Fatalf("errors: %v", errs)
+	}
+	if !contains(out, "A=p1") || !contains(out, "B=p2") || !contains(out, "C=plain") {
+		t.Fatalf("unexpected output: %v", out)
+	}
+	if len(*reqs) != 1 {
+		t.Fatalf("prompted %d times, want 1", len(*reqs))
+	}
+	if want := []string{"user(u1)", "user(u2)"}; !reflect.DeepEqual((*reqs)[0].ProviderRefs, want) {
+		t.Fatalf("ProviderRefs = %v, want %v", (*reqs)[0].ProviderRefs, want)
+	}
+}
+
+func TestResolveEnvLines_BatchApprovalDenyBlocksAll(t *testing.T) {
+	usr := &fakeUserResolver{creds: map[string]string{"u1": "p1", "u2": "p2"}}
+	app, reqs := newApprovalTestApp(usr, false)
+
+	out, errs := ResolveEnvLines(context.Background(), app, []string{"A=user(u1)", "B=user(u2)"})
+	if len(errs) != 2 {
+		t.Fatalf("got %d errors, want 2: %v", len(errs), errs)
+	}
+	if contains(out, "A=p1") || contains(out, "B=p2") {
+		t.Fatalf("secrets leaked after deny: %v", out)
+	}
+	if len(*reqs) != 1 {
+		t.Fatalf("prompted %d times, want 1", len(*reqs))
+	}
+	if len(usr.calls) != 0 {
+		t.Fatalf("resolver called after deny: %v", usr.calls)
+	}
+}
+
+func TestResolveEnvLines_SingleSecretUsesSinglePrompt(t *testing.T) {
+	usr := &fakeUserResolver{creds: map[string]string{"u1": "p1"}}
+	app, reqs := newApprovalTestApp(usr, true)
+
+	out, errs := ResolveEnvLines(context.Background(), app, []string{"A=user(u1)"})
+	if len(errs) != 0 {
+		t.Fatalf("errors: %v", errs)
+	}
+	if !contains(out, "A=p1") {
+		t.Fatalf("unexpected output: %v", out)
+	}
+	if len(*reqs) != 1 || len((*reqs)[0].ProviderRefs) != 0 {
+		t.Fatalf("want one single-secret prompt, got %+v", *reqs)
+	}
+}
+
+func TestResolveEnvLines_BatchCollectsNestedKeepass(t *testing.T) {
+	kp := &fakeKPResolver{creds: map[string]string{"inner.kdbx|t|": "ip", "outer.kdbx|o|ip": "op"}}
+	app, reqs := newApprovalTestApp(nil, true)
+	app.KP = kp
+
+	out, errs := ResolveEnvLines(context.Background(), app, []string{"A=keepass(outer.kdbx[keepass(inner.kdbx|t)]|o)"})
+	if len(errs) != 0 {
+		t.Fatalf("errors: %v", errs)
+	}
+	if !contains(out, "A=op") {
+		t.Fatalf("unexpected output: %v", out)
+	}
+	if len(*reqs) != 1 || len((*reqs)[0].ProviderRefs) != 2 {
+		t.Fatalf("want one prompt covering both entries, got %+v", *reqs)
+	}
 }
